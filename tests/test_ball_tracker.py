@@ -1,4 +1,4 @@
-"""追蹤器與球資訊來源：追得上彈跳的球、延遲正確。"""
+"""Tracker and ball information sources: keeps up with a bouncing ball, latency is right."""
 import numpy as np
 import pytest
 
@@ -19,7 +19,7 @@ def _track_one_throw(m, d, cfg, mode, seed):
     rng = np.random.default_rng(seed)
     source.reset(rng)
     base = d.xpos[ids.base_body].copy()
-    # 從正前方丟一顆會先彈跳的球，瞄準機器人旁邊 0.8 m（不會打到，才看得到完整軌跡）
+    # throw from straight ahead, aimed 0.8 m to the side of the robot (it won't hit, so we see the whole path)
     plan = plan_throw(rng, cfg.balls, base[0:2] + np.array([0.0, 0.8]), 0.0, np.zeros(2),
                       0.1, 0.136, 0.7, mode=mode)
     launcher.throw_now(plan, 0)
@@ -41,10 +41,10 @@ def _track_one_throw(m, d, cfg, mode, seed):
 @pytest.mark.parametrize("seed", [0, 1])
 def test_tracker_follows_ball(sim, cfg, mode, seed):
     pos_err, vel_err, ids_seen = _track_one_throw(*sim, cfg, mode, seed)
-    assert len(pos_err) > 10, "大部分時間應該追得到"
-    assert np.median(pos_err) < 0.06, f"位置誤差中位數 {np.median(pos_err):.3f} m"
-    assert np.median(vel_err[3:]) < 0.5, f"速度誤差中位數 {np.median(vel_err[3:]):.3f} m/s"
-    assert len(ids_seen) <= 2, "同一顆球不應該一直被當成新的球"
+    assert len(pos_err) > 10, "should be tracking most of the time"
+    assert np.median(pos_err) < 0.06, f"median position error {np.median(pos_err):.3f} m"
+    assert np.median(vel_err[3:]) < 0.5, f"median velocity error {np.median(vel_err[3:]):.3f} m/s"
+    assert len(ids_seen) <= 2, "the same ball should not keep becoming a new ball"
 
 
 def test_tracker_geometric_mode(sim, cfg):

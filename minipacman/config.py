@@ -1,20 +1,20 @@
-"""Mini PAC-MAN 的所有參數，集中在這一個檔案。
+"""All Mini PAC-MAN parameters, in one file.
 
-使用方式
---------
+Usage
+-----
     from minipacman.config import default_config
     cfg = default_config()
-    cfg.balls.radius_range          # 球的半徑範圍 (m)
+    cfg.balls.radius_range          # ball radius range (m)
 
-規則
-----
-* 所有長度單位是公尺 (m)，時間是秒 (s)，角度是弧度 (rad)，除非變數名稱寫了 ``_deg``。
-* 每個參數旁邊註明「來源」：
-    - ``[PAC-MAN]``：照抄原版 repo（github.com/lzyang2000/perceptive_cbf_rl, MIT License）的設定，
-      檔名寫在後面，方便報告引用。
-    - ``[原型]``：我們自己的 TITA 可行性測試量到的值（Final_Project/feasibility_check_tita）。
-    - ``[自訂]``：我們自己決定的值，可以調。
-* 要改參數時，改這裡，不要在其他檔案寫死數字。
+Rules
+-----
+* Lengths are in metres (m), time in seconds (s), angles in radians (rad), unless the name ends in ``_deg``.
+* Every parameter says where it comes from:
+    - ``[PAC-MAN]``: copied from the original repo (github.com/lzyang2000/perceptive_cbf_rl, MIT License);
+      the file name is given so the report can cite it.
+    - ``[prototype]``: measured in our own TITA feasibility test (Final_Project/feasibility_check_tita).
+    - ``[ours]``: our own choice, feel free to tune.
+* To change a number, change it here. Don't hard-code numbers in other files.
 """
 from __future__ import annotations
 
@@ -24,29 +24,30 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 OUTPUT_DIR = REPO_ROOT / "outputs"
-# TITA 模型位置：預設是 scripts/download_tita.py 下載的位置；也可以用環境變數 MINIPACMAN_TITA_DIR 指定。
+# Where the TITA model lives: by default where scripts/download_tita.py puts it;
+# can be overridden with the MINIPACMAN_TITA_DIR environment variable.
 TITA_DIR = Path(os.environ.get("MINIPACMAN_TITA_DIR",
                                REPO_ROOT / "third_party" / "tita" / "urdfs" / "tita_description"))
 
 
 @dataclass
 class TitaSource:
-    """TITA 模型的下載來源（沒有授權，所以不放進 repo，用腳本下載固定版本）。"""
+    """Where to download the TITA model (it has no license, so it is not in the repo; a script downloads a pinned version)."""
     repo_url: str = "https://github.com/DDTRobot/ddt_ros2_control.git"
-    commit: str = "beb05df2d585bb100b4aeaca85bcba077d3a3ba0"    # [原型] 我們測試用的版本
+    commit: str = "beb05df2d585bb100b4aeaca85bcba077d3a3ba0"    # [prototype] the version we tested
     subdir: str = "urdfs/tita_description"
     target_dir: Path = REPO_ROOT / "third_party" / "tita"
 
 
 @dataclass
 class SimConfig:
-    """模擬器設定與各層的更新頻率。"""
-    timestep: float = 0.002            # [原型] 物理步長 2 ms = 500 Hz
-    integrator: str = "implicitfast"   # [原型]
-    default_contact: bool = True       # [原型] 用 MuJoCo 預設接觸 (pyramidal, impratio=1)；robot.xml 的設定會讓 LQR 漂移
-    lqr_every: int = 1                 # LQR 每幾個物理步算一次（1 = 500 Hz）
-    policy_every: int = 10             # policy、CBF、深度相機每幾個物理步一次（10 = 50 Hz）[PAC-MAN] 控制頻率 50 Hz
-    episode_seconds: float = 20.0      # [PAC-MAN] amp_env_cfg.py：episode 20 s
+    """Simulator settings and the update rate of each layer."""
+    timestep: float = 0.002            # [prototype] physics step 2 ms = 500 Hz
+    integrator: str = "implicitfast"   # [prototype]
+    default_contact: bool = True       # [prototype] MuJoCo default contact (pyramidal, impratio=1); robot.xml's settings make the LQR drift
+    lqr_every: int = 1                 # run the LQR every N physics steps (1 = 500 Hz)
+    policy_every: int = 10             # policy, CBF and depth camera every N physics steps (10 = 50 Hz) [PAC-MAN] 50 Hz control
+    episode_seconds: float = 20.0      # [PAC-MAN] amp_env_cfg.py: 20 s episodes
 
     @property
     def policy_dt(self) -> float:
@@ -55,31 +56,31 @@ class SimConfig:
 
 @dataclass
 class RobotConfig:
-    """TITA 的名稱、尺寸、姿勢。"""
+    """TITA names, sizes and poses."""
     base_body: str = "base_link"
     legs: tuple = ("joint_left_leg_1", "joint_left_leg_2", "joint_left_leg_3",
                    "joint_right_leg_1", "joint_right_leg_2", "joint_right_leg_3")
     wheels: tuple = ("joint_left_leg_4", "joint_right_leg_4")
     wheel_motors: tuple = ("left_leg_4", "right_leg_4")
-    leg_kp: float = 600.0              # [原型] 腿部位置伺服
-    leg_kv: float = 15.0               # [原型]
-    leg_force_limit: float = 80.0      # [原型] robot.xml 的腿部扭矩上限 (Nm)
-    wheel_torque_limit: float = 20.0   # [原型] 輪子扭矩上限 (Nm)
-    wheel_radius: float = 0.0925       # [原型] robot.xml 輪子圓柱半徑
-    z_offset: float = -5e-4            # [原型] 重置時讓輪子微微壓進地面，線性化才看得到接觸
-    stand_hip: float = 0.5             # [原型] 站姿 hip 角度；knee 由 balanced_k() 算
-    crouch_hip: float = 1.0            # [原型] 最低蹲姿；hip >= 1.1 會傾斜 30–40 度（未解決）
-    # 五個碰撞形狀（機器人被球打到 = 球碰到其中任何一個）
+    leg_kp: float = 600.0              # [prototype] leg position servos
+    leg_kv: float = 15.0               # [prototype]
+    leg_force_limit: float = 80.0      # [prototype] leg torque limit in robot.xml (Nm)
+    wheel_torque_limit: float = 20.0   # [prototype] wheel torque limit (Nm)
+    wheel_radius: float = 0.0925       # [prototype] wheel cylinder radius in robot.xml
+    z_offset: float = -5e-4            # [prototype] on reset, press the wheels slightly into the floor so the linearization sees the contact
+    stand_hip: float = 0.5             # [prototype] standing hip angle; the knee comes from balanced_k()
+    crouch_hip: float = 1.0            # [prototype] lowest crouch; hip >= 1.1 settles at a 30-40 degree tilt (unsolved)
+    # The five collision shapes (the robot is "hit" when a ball touches any of them)
     collision_geoms: tuple = ("base_link_collision_0", "left_leg_3_collision_0", "right_leg_3_collision_0",
                               "left_leg_4_collision_0", "right_leg_4_collision_0")
-    # 感測器（robot.xml 本來就有）
+    # Sensors (already in robot.xml)
     imu_site: str = "trunk_imu"
-    camera_bodies: tuple = ("left_camera", "right_camara")   # TITA 真實雙目相機的位置（原檔拼字就是 camara）
+    camera_bodies: tuple = ("left_camera", "right_camara")   # where TITA's real stereo camera is ("camara" is the original spelling)
 
 
 @dataclass
 class LQRConfig:
-    """LQR 平衡控制器的權重（[原型] tita_core.py，已在 AUP 驗證）。"""
+    """LQR balance controller weights ([prototype] tita_core.py, verified on AUP)."""
     q_default: float = 1e-3
     q_pos_x: float = 20.0
     q_pitch: float = 200.0
@@ -88,99 +89,102 @@ class LQRConfig:
     q_pitch_rate: float = 2.0
     q_yaw_rate: float = 1.0
     r_wheel: float = 0.5
-    discount: float = 0.9999           # 側向位置不可控，加一點折扣 DARE 才有解
-    fd_eps: float = 1e-6               # mjd_transitionFD 的差分步長
-    zero_abad_gains: bool = True       # 側擺關節 (abad) 增益歸零，原本 ±30000 是硬接觸造成的假象
+    discount: float = 0.9999           # lateral position is uncontrollable; a small discount lets the DARE be solved
+    fd_eps: float = 1e-6               # finite-difference step for mjd_transitionFD
+    zero_abad_gains: bool = True       # zero the hip-roll (abad) gains; the original ±30000 came from the stiff contact
     zero_frictionloss_when_linearizing: bool = True
 
 
 @dataclass
 class CommandConfig:
-    """高層指令 u = (前進速度 v, 轉彎速度 w, 蹲下速度 sdot) 的範圍。
+    """Limits of the high-level command u = (forward speed v, turn rate w, crouch rate sdot).
 
-    s 是蹲低程度：0 = 站姿、1 = 最低蹲姿。
+    s is the crouch level: 0 = standing, 1 = lowest crouch.
 
-    安全範圍（envelope）[原型，筆電 MuJoCo 4.0.1 量的，AUP 上請再驗證]：
-    蹲得越低，能安全行駛的速度越低。實測：s=1 時 v=0.5 會前後傾到 50 度、v=0.8 加轉彎會倒；
-    s=0.5 時 v=0.5、w=2 最大傾角約 19 度。所以速度上限隨 s 線性遞減。
+    Safe envelope [prototype, measured on a laptop with MuJoCo 4.0.1; check again on AUP]:
+    the lower the robot crouches, the slower it can drive safely. Measured: at s=1, v=0.5 pitches
+    to 50 degrees and v=0.8 while turning falls over; at s=0.5, v=0.5 and w=2 peak at about 19 degrees.
+    So the speed limits drop linearly with s.
     """
-    v_min: float = -0.5                # 可以倒退
+    v_min: float = -0.5                # it can reverse
     v_max_stand: float = 0.8
     v_max_crouch: float = 0.3
     w_max_stand: float = 2.0           # rad/s
     w_max_crouch: float = 1.0
-    sdot_max: float = 1.0 / 0.3        # 0.3 秒從站姿蹲到底 [原型 duck 0.3 s]
-    accel_limit: float = 1.5           # m/s^2，速度指令的變化率上限（太猛 LQR 會倒）
+    sdot_max: float = 1.0 / 0.3        # 0.3 s from standing to full crouch [prototype duck 0.3 s]
+    accel_limit: float = 1.5           # m/s^2, max change rate of the speed command (too abrupt and the LQR falls)
     yaw_accel_limit: float = 6.0       # rad/s^2
-    speed_lag_tau: float = 0.16        # [原型] 速度到 90% 要 0.36 s，換算一階延遲時間常數約 0.16 s
+    speed_lag_tau: float = 0.16        # [prototype] 0.36 s to reach 90% speed, roughly a first-order lag with tau = 0.16 s
 
 
 @dataclass
 class TaskConfig:
-    """任務：開到前方終點。"""
-    goal_distance: float = 6.0         # [自訂] 終點在起點正前方幾公尺
-    goal_radius: float = 0.3           # 進入這個半徑就算到達
-    fall_pitch: float = 1.0            # |pitch| > 1 rad 視為倒下（episode 結束）
+    """Task: drive to a goal in front of the robot."""
+    goal_distance: float = 6.0         # [ours] goal is this many metres straight ahead of the start
+    goal_radius: float = 0.3           # inside this radius counts as reached
+    fall_pitch: float = 1.0            # |pitch| > 1 rad counts as fallen (episode ends)
 
 
 @dataclass
 class BallConfig:
-    """球與發球器。
+    """Balls and the launcher.
 
-    一個 episode 丟 1–5 顆，從機器人「正面」（目前朝向 ±25 度）丟過來。
-    有兩種軌跡：直接飛向機器人 (direct)，或先在機器人前方落地彈起再飛過來 (bounce)。
+    Each episode throws 1-5 balls from the robot's "front" (its current heading ±25 degrees).
+    Two kinds of trajectory: straight at the robot (direct), or bouncing once in front of the robot first (bounce).
     """
-    pool_size: int = 5                         # 場景裡預先放幾顆球（= 每回合最多幾顆）
-    balls_per_episode: tuple = (1, 5)          # [自訂] 每回合隨機丟幾顆（含兩端）
-    first_throw_range: tuple = (1.0, 3.0)      # 第一顆球的發射時間 (s)
-    throw_interval_range: tuple = (1.0, 3.5)   # [PAC-MAN] 1.0–4.0 s；縮到 3.5 讓 5 顆都能在 20 s 內丟完
-    radius_range: tuple = (0.075, 0.125)       # [PAC-MAN] dodge_env_cfgs.py：dr.geom_size (0.075, 0.125)
-    mass_range: tuple = (0.07, 0.20)           # [PAC-MAN 固定 0.136 kg，ball.py] 依我們的要求在它附近隨機
-    restitution_range: tuple = (0.5, 0.8)      # [自訂] PAC-MAN 沒有彈跳；0.5–0.8 是常見充氣球的範圍
-    hollow: bool = True                        # 慣性用薄殼球 (2/3 m r^2)，像充氣球
-    friction: tuple = (0.6, 0.005, 0.0001)     # [自訂] 滑動、扭轉、滾動摩擦
-    # 球的接觸用「直接指定剛度、阻尼」的 solref = (-stiffness, -damping)。
-    # 實測 (dt=2 ms)：stiffness=50000 時接觸約 7 步、6 m/s 撞擊最多壓進 2.7 cm，彈性係數 0–0.99 都穩定。
-    # 預設的 (時間常數, 阻尼比) 寫法在阻尼比小時會變得極硬、數值不穩，量到 e > 1，所以不用。
+    pool_size: int = 5                         # how many balls are pre-placed in the scene (= max balls per episode)
+    balls_per_episode: tuple = (1, 5)          # [ours] random number of balls per episode (inclusive)
+    first_throw_range: tuple = (1.0, 3.0)      # launch time of the first ball (s)
+    throw_interval_range: tuple = (1.0, 3.5)   # [PAC-MAN] 1.0-4.0 s; cut to 3.5 so 5 balls fit in 20 s
+    radius_range: tuple = (0.075, 0.125)       # [PAC-MAN] dodge_env_cfgs.py: dr.geom_size (0.075, 0.125)
+    mass_range: tuple = (0.07, 0.20)           # [PAC-MAN fixed at 0.136 kg, ball.py] randomised around it, as we wanted
+    restitution_range: tuple = (0.5, 0.8)      # [ours] PAC-MAN has no bounce; 0.5-0.8 is typical for inflated balls
+    hollow: bool = True                        # inertia of a thin shell (2/3 m r^2), like an inflated ball
+    friction: tuple = (0.6, 0.005, 0.0001)     # [ours] sliding, torsional, rolling friction
+    # Ball contacts use solref = (-stiffness, -damping) ("direct" stiffness and damping).
+    # Measured (dt=2 ms): with stiffness=50000 a contact lasts about 7 steps and a 6 m/s impact sinks at most 2.7 cm;
+    # restitution 0-0.99 is stable. The default (timeconst, dampratio) form gets extremely stiff at small damping
+    # ratios, goes numerically unstable and gives e > 1, so we don't use it.
     contact_stiffness: float = 50000.0
-    calibration_impact_speed: float = 4.0      # 建彈性對照表時的撞擊速度 (m/s)
-    launch_distance_range: tuple = (3.0, 5.0)  # [PAC-MAN 2–3 m，人形機器人] TITA 比較慢，拉遠一點
-    launch_angle_deg: float = 25.0             # [PAC-MAN] 發射點在機器人朝向 ±25 度內
-    horizontal_speed_range: tuple = (3.0, 6.0) # [PAC-MAN 約 3.2–5.2 m/s，由距離/飛行時間推得]
-    arrival_height_range: tuple = (0.05, 0.65) # [自訂] 球心抵達機器人時的高度；TITA 站姿頂部約 0.54 m
-    direct_launch_height_range: tuple = (0.3, 1.5)   # direct 軌跡的發射高度
-    bounce_fraction: float = 0.5               # [自訂] 先落地彈跳的比例
-    bounce_point_range: tuple = (0.3, 0.8)     # 彈跳點在「發射點→目標」之間的位置比例
-    bounce_launch_height_max: float = 2.5      # bounce 軌跡解出的發射高度若超過就重抽
+    calibration_impact_speed: float = 4.0      # impact speed used to build the restitution table (m/s)
+    launch_distance_range: tuple = (3.0, 5.0)  # [PAC-MAN 2-3 m, humanoid] TITA is slower, so a bit further
+    launch_angle_deg: float = 25.0             # [PAC-MAN] launch point within ±25 degrees of the robot's heading
+    horizontal_speed_range: tuple = (3.0, 6.0) # [PAC-MAN about 3.2-5.2 m/s, from distance / flight time]
+    arrival_height_range: tuple = (0.05, 0.65) # [ours] ball-centre height when it reaches the robot; TITA's top is ~0.54 m standing
+    direct_launch_height_range: tuple = (0.3, 1.5)   # launch height for direct throws
+    bounce_fraction: float = 0.5               # [ours] fraction of throws that bounce first
+    bounce_point_range: tuple = (0.3, 0.8)     # where the bounce is, as a fraction of the way from launch to target
+    bounce_launch_height_max: float = 2.5      # resample if the solved launch height of a bounce throw is above this
     aim_noise: float = 0.1                     # [PAC-MAN] aim_noise_scale = 0.1 m
-    lead_target: bool = True                   # [PAC-MAN] 依機器人速度預判位置
-    retire_behind: float = 1.0                 # 球跑到機器人後方超過這距離就收回
-    retire_lifetime: float = 4.0               # 發射後超過這時間就收回
-    park_xy: tuple = (-100.0, 100.0)           # 收起來的球放這裡（遠離相機視野）
+    lead_target: bool = True                   # [PAC-MAN] aim where the robot will be, using its velocity
+    retire_behind: float = 1.0                 # take the ball back once it is this far behind the robot
+    retire_lifetime: float = 4.0               # take the ball back this long after launch
+    park_xy: tuple = (-100.0, 100.0)           # where unused balls are parked (far from the camera)
 
 
 @dataclass
 class DepthCameraConfig:
-    """深度相機。用 MuJoCo 光線投射 (mj_multiRay) 在 CPU 上算，不需要 OpenGL。
+    """Depth camera. Computed on the CPU with MuJoCo ray casting (mj_multiRay); no OpenGL needed.
 
-    實測（筆電）：16x9 直接投射時，2 m 外半徑 10 cm 的球一個像素都打不到（光線間距比球大），
-    所以先用 64x36 投射，再用「取最小值」縮成 16x9 給 policy。64x36 一張約 0.3 ms。
+    Measured (laptop): casting 16x9 rays directly misses a 10 cm ball 2 m away entirely (the gap between rays
+    is bigger than the ball), so we cast 64x36 and shrink to 16x9 for the policy by taking the minimum.
+    One 64x36 image takes about 0.3 ms.
     """
-    hi_res: tuple = (64, 36)           # (寬, 高) 實際投射的解析度；追蹤器用這個
+    hi_res: tuple = (64, 36)           # (width, height) actually cast; the tracker uses this
     policy_res: tuple = (16, 9)        # [PAC-MAN] DEPTH_WIDTH=16, DEPTH_HEIGHT=9
-    fovy_deg: float = 54.0             # [PAC-MAN] 垂直視角 54 度（16:9 時水平約 84.5 度）
+    fovy_deg: float = 54.0             # [PAC-MAN] vertical field of view 54 degrees (about 84.5 horizontal at 16:9)
     near: float = 0.1                  # [PAC-MAN] DEPTH_NEAR
     far: float = 5.0                   # [PAC-MAN] DEPTH_FAR
-    tilt_up_deg: float = 5.0           # [自訂] PAC-MAN 人形機器人頭部上仰 20 度；TITA 相機較低，球多在水平附近
-    geomgroups: tuple = (1, 1, 1, 0, 0, 0)   # 只看可見的幾何 (group 0–2)，不看碰撞用的 group 3
-    ball_only: bool = True             # [PAC-MAN] BallOnlyDepthObs：球以外的像素設成 far（理想化的分割）
-    update_every: int = 1              # 每幾個 policy 步更新一次（1 = 50 Hz）[PAC-MAN] DEPTH_UPDATE_PERIOD=1
-    frame_offsets: tuple = (0, 3, 8, 18)   # [PAC-MAN] train_dodge_single_ballonly.sh：疊 4 張
-    # 感測雜訊（給追蹤器用的高解析度深度）：sigma = a + b * d^2，類似雙目/結構光相機
+    tilt_up_deg: float = 5.0           # [ours] PAC-MAN tilts the humanoid's head camera up 20 degrees; TITA's camera is lower and balls are mostly near level
+    geomgroups: tuple = (1, 1, 1, 0, 0, 0)   # only see visible geoms (groups 0-2), not the collision group 3
+    ball_only: bool = True             # [PAC-MAN] BallOnlyDepthObs: every non-ball pixel is set to far (idealised segmentation)
+    update_every: int = 1              # update every N policy steps (1 = 50 Hz) [PAC-MAN] DEPTH_UPDATE_PERIOD=1
+    frame_offsets: tuple = (0, 3, 8, 18)   # [PAC-MAN] train_dodge_single_ballonly.sh: stack 4 frames
+    # Sensor noise (on the high-res depth used by the tracker): sigma = a + b * d^2, like a stereo / structured-light camera
     noise_a: float = 0.002
     noise_b: float = 0.004
-    pixel_dropout: float = 0.02        # 每個像素隨機失效（回傳 far）的機率
-    # policy 影像的訓練增強 [PAC-MAN] _add_depth_obs_single_ballonly
+    pixel_dropout: float = 0.02        # chance that a pixel randomly fails (returns far)
+    # Training augmentation of the policy image [PAC-MAN] _add_depth_obs_single_ballonly
     aug_ball_noise_sigma: float = 0.03
     aug_ball_pixel_dropout: float = 0.10
     aug_ball_full_dropout: float = 0.02
@@ -189,117 +193,118 @@ class DepthCameraConfig:
 
 @dataclass
 class TrackerConfig:
-    """從深度圖找球、追蹤球 (ball_tracker.py)。"""
-    mode: str = "segmented"            # "segmented"：用分割找球像素（理想化，同 PAC-MAN）；"geometric"：只用深度
-    floor_threshold: float = 0.06      # geometric 模式：高於地面這麼多才算候選點
+    """Finding and tracking balls in the depth image (ball_tracker.py)."""
+    mode: str = "segmented"            # "segmented": find ball pixels by segmentation (idealised, same as PAC-MAN); "geometric": depth only
+    floor_threshold: float = 0.06      # geometric mode: a point counts only if it is this high above the floor
     min_pixels: int = 1
-    gate: float = 0.5                  # 資料關聯的距離門檻 (m)
-    accel_noise: float = 3.0           # 卡爾曼濾波的過程雜訊 (m/s^2)
-    confirm_hits: int = 3              # 連續看到幾次才輸出這顆球
-    max_misses: int = 10               # 連續幾次沒看到就刪除（50 Hz 時 = 0.2 s）
-    init_speed_std: float = 8.0        # 新軌跡速度的初始不確定度 (m/s)
+    gate: float = 0.5                  # distance gate for data association (m)
+    accel_noise: float = 3.0           # Kalman filter process noise (m/s^2)
+    confirm_hits: int = 3              # a ball is reported only after being seen this many times
+    max_misses: int = 10               # a track is deleted after this many misses in a row (0.2 s at 50 Hz)
+    init_speed_std: float = 8.0        # initial speed uncertainty of a new track (m/s)
 
 
 @dataclass
 class NoisyTruthConfig:
-    """「模擬器真實值 + 雜訊 + 延遲」的球資訊來源（實驗 3 的中間組）。"""
+    """The "simulator truth + noise + latency" ball information source (middle group in Exp 3)."""
     pos_sigma: float = 0.03
     vel_sigma: float = 0.2
-    latency: float = 0.04              # 秒；會四捨五入到 policy 步
-    dropout: float = 0.05              # 每一步隨機看不到某顆球的機率
+    latency: float = 0.04              # seconds; rounded to policy steps
+    dropout: float = 0.05              # chance per step of not seeing a ball
 
 
 @dataclass
 class ImuConfig:
-    """IMU（robot.xml 的 trunk_gyro / trunk_accel / trunk_quat）。數值是一般 MEMS IMU 的量級，可依實際規格調。"""
+    """IMU (trunk_gyro / trunk_accel / trunk_quat in robot.xml). Typical MEMS IMU magnitudes; adjust to a real spec if you like."""
     gyro_sensor: str = "trunk_gyro"
     accel_sensor: str = "trunk_accel"
     quat_sensor: str = "trunk_quat"
     gyro_noise: float = 0.01           # rad/s
-    gyro_bias_std: float = 0.005       # rad/s（每個 episode 抽一次）
+    gyro_bias_std: float = 0.005       # rad/s (drawn once per episode)
     accel_noise: float = 0.05          # m/s^2
     accel_bias_std: float = 0.05
-    quat_noise_deg: float = 0.5        # 姿態輸出的雜訊（當作 IMU 內建融合的結果）
+    quat_noise_deg: float = 0.5        # noise on the orientation output (treated as the IMU's built-in fusion)
 
 
 @dataclass
 class EncoderConfig:
-    """關節 encoder（robot.xml 的 *_pos / *_vel）。"""
+    """Joint encoders (the *_pos / *_vel sensors in robot.xml)."""
     counts_per_rev: int = 4096         # 12-bit
     vel_noise: float = 0.02            # rad/s
 
 
 @dataclass
 class EstimatorConfig:
-    """state_estimator.py：用 IMU + encoder 估計 LQR 需要的狀態。"""
+    """state_estimator.py: estimate the state the LQR needs from IMU + encoders."""
     complementary_alpha: float = 0.98
-    use_true_state: bool = True        # True = LQR 直接用模擬器真實狀態（估測器寫好前先用這個）
+    use_true_state: bool = True        # True = the LQR uses the simulator's true state (use this until the estimator works)
 
 
 @dataclass
 class CBFConfig:
-    """CBF：安全函數、reward 項、過濾器。"""
-    # reward 用的 link-CBF [PAC-MAN] rewards.py dodge_link_cbf_reward；dodge_env_cfgs.py 的設定值
+    """CBF: barrier function, reward term, safety filter."""
+    # Link-CBF for the reward [PAC-MAN] rewards.py dodge_link_cbf_reward; values from dodge_env_cfgs.py
     alpha: float = 1.0
     margin: float = 0.05
     constraint_clip: float = 2.0
     reward_weight: float = 0.27
-    threat_min_height_above_radius: float = 0.05   # 球離地才算威脅
-    threat_min_speed: float = 0.5                   # 球水平速度 > 0.5 m/s 才算威脅
-    # 執行時過濾器（我們自己的，PAC-MAN 部署版沒有用過濾器）
+    threat_min_height_above_radius: float = 0.05   # a ball is a threat only when it is off the floor
+    threat_min_speed: float = 0.5                   # and its horizontal speed is > 0.5 m/s
+    # Runtime filter (ours; PAC-MAN's deployed config has no filter)
     filter_alpha: float = 4.0
     filter_margin: float = 0.05
-    horizon: float = 1.5               # 預測多久以內的碰撞 (s)
-    lag_tau_naive: float = 0.0         # 簡單版：假設速度瞬間改變
-    lag_tau_aware: float = 0.16        # 考慮延遲版：用 CommandConfig.speed_lag_tau
+    horizon: float = 1.5               # how far ahead to predict collisions (s)
+    lag_tau_naive: float = 0.0         # naive: assume the speed changes instantly
+    lag_tau_aware: float = 0.16        # lag-aware: use CommandConfig.speed_lag_tau
 
 
 @dataclass
 class RewardConfig:
-    """三種 reward（實驗 1）。variant: "task" / "task_collision" / "task_cbf"。"""
-    progress_weight: float = 1.0       # 每步往終點前進的距離 (m) 乘這個
-    goal_bonus: float = 10.0           # 第一次到達終點
-    at_goal_weight: float = 0.1        # 停在終點時每步加分
-    collision_penalty: float = 5.0     # task_collision：每被一顆球打到扣分
+    """The three rewards (Exp 1). variant: "task" / "task_collision" / "task_cbf"."""
+    progress_weight: float = 1.0       # distance moved towards the goal each step (m) times this
+    goal_bonus: float = 10.0           # first time the goal is reached
+    at_goal_weight: float = 0.1        # per step while staying at the goal
+    collision_penalty: float = 5.0     # task_collision: penalty per ball that hits
     fall_penalty: float = 200.0        # [PAC-MAN] is_terminated -200
     action_rate_weight: float = 0.05   # [PAC-MAN] dodge_action_rate -0.05
-    # task_cbf 的 CBF 項權重在 CBFConfig.reward_weight
+    # The weight of the CBF term in task_cbf is CBFConfig.reward_weight
 
 
 @dataclass
 class ObsConfig:
-    """PPO 的觀測（2026-11-19 確認：照 PAC-MAN 的非對稱 actor-critic）。
+    """PPO observations (agreed 2026-11-19: PAC-MAN's asymmetric actor-critic).
 
-    actor（部署時真的在跑的網路）：深度圖疊 4 張 (576) + 本體感測 (11) + 終點 (2) = 589 維
-    critic（只在訓練時幫忙評分）：actor 的全部 + 真實底座速度 (3) + 真實球狀態 (5 顆 × 8) = 632 維
-    每一段在向量裡的位置由 dodge_env.obs_layout(cfg) 算出來。
+    actor (the network that actually runs at deployment): stacked depth images (576) + proprioception (11) + goal (2) = 589
+    critic (only helps with scoring during training): everything the actor sees + true base velocity (3)
+                                                     + true ball states (5 balls × 8) = 632
+    Where each part sits in the vector: dodge_env.obs_layout(cfg).
     """
-    actor_ball_input: str = "depth"    # "depth"：選項 A（預設，PAC-MAN 做法）
-                                       # "tracker"：備案 B，actor 改看追蹤器估出的球（5 顆 × 8 = 40 維）
-    # 本體感測：(名稱, 維度)。順序就是向量裡的順序
-    proprio_terms: tuple = (("gyro", 3),           # 車身角速度 (rad/s)，IMU 座標
-                            ("gravity", 3),        # 重力方向在車身座標的單位向量（由 IMU 姿態算）
-                            ("forward_speed", 1),  # 前進速度 (m/s)
-                            ("crouch", 1),         # 蹲低程度 s（ReferenceGenerator 的值）
-                            ("last_action", 3))    # 上一步的 policy 輸出
-    goal_dims: int = 2                 # 終點在機器人車頭座標的 (前, 左) 距離 (m)
-    ball_slots: int = 5                # 最多看幾顆球（= 球池大小），不足補 0
-    ball_slot_features: int = 8        # 每顆：相對位置 3、相對速度 3（車頭座標）、半徑 1、是否存在 1
-    clip_rel_pos: float = 10.0         # 相對位置夾在 ±10 m
-    privileged_base_vel: int = 3       # critic 多看的真實底座線速度（車頭座標）
-    # 課程學習：每個訓練環境的前 N 個 policy 步，每回合只丟 1 顆球（256 個環境 × 24 步 / iteration
-    # → 24000 步約等於前 1000 個 iteration）。評估時一律 1–5 顆。
+    actor_ball_input: str = "depth"    # "depth": option A (default, the PAC-MAN way)
+                                       # "tracker": fallback B, the actor sees the tracker's ball estimates instead (5 balls × 8 = 40)
+    # Proprioception: (name, size). This order is the order in the vector
+    proprio_terms: tuple = (("gyro", 3),           # body angular velocity (rad/s), IMU frame
+                            ("gravity", 3),        # unit gravity direction in the body frame (from the IMU orientation)
+                            ("forward_speed", 1),  # forward speed (m/s)
+                            ("crouch", 1),         # crouch level s (from ReferenceGenerator)
+                            ("last_action", 3))    # previous policy output
+    goal_dims: int = 2                 # goal position in the robot's heading frame (forward, left) in m
+    ball_slots: int = 5                # see at most this many balls (= pool size), pad with zeros
+    ball_slot_features: int = 8        # per ball: relative position 3, relative velocity 3 (heading frame), radius 1, present 1
+    clip_rel_pos: float = 10.0         # clip relative positions to ±10 m
+    privileged_base_vel: int = 3       # true base linear velocity (heading frame), critic only
+    # Curriculum: for the first N policy steps of each training env, throw only 1 ball per episode
+    # (256 envs × 24 steps per iteration → 24000 steps is about the first 1000 iterations). Evaluation always uses 1-5.
     single_ball_env_steps: int = 24_000
 
 
 @dataclass
 class PPOConfig:
-    """rsl_rl 5.4.0 的 PPO 參數（[PAC-MAN] rl_cfg.py，除非另外註明）。"""
-    rsl_rl_version: str = "5.4.0"      # [PAC-MAN] pyproject.toml 註解：mjlab 1.5.3 pin rsl-rl-lib==5.4.0
-    num_envs: int = 256                # [自訂] PAC-MAN 用 8192 個 GPU 環境；我們的模擬在 CPU，用 256
-    num_workers: int = 0               # 0 = 自動（CPU 核心數 - 2）
+    """rsl_rl 5.4.0 PPO parameters ([PAC-MAN] rl_cfg.py unless noted)."""
+    rsl_rl_version: str = "5.4.0"      # [PAC-MAN] pyproject.toml comment: mjlab 1.5.3 pins rsl-rl-lib==5.4.0
+    num_envs: int = 256                # [ours] PAC-MAN uses 8192 GPU envs; our sim is on the CPU, so 256
+    num_workers: int = 0               # 0 = automatic (CPU cores - 2)
     num_steps_per_env: int = 24
-    max_iterations: int = 5000         # [自訂] 256 × 24 × 5000 ≈ 3,000 萬步，先跑看看
+    max_iterations: int = 5000         # [ours] 256 × 24 × 5000 ≈ 30 million steps, try this first
     save_interval: int = 100
     hidden_dims: tuple = (512, 256, 128)
     activation: str = "elu"
@@ -320,23 +325,23 @@ class PPOConfig:
 
 @dataclass
 class ExperimentConfig:
-    """實驗設定。"""
+    """Experiment settings."""
     n_eval_seeds: int = 100
-    eval_seed_offset: int = 10_000     # 評估用 seed 10000–10099，不和訓練重疊
-    quick_seeds: int = 5               # --quick 時用幾個 seed
+    eval_seed_offset: int = 10_000     # evaluation seeds 10000-10099, never used in training
+    quick_seeds: int = 5               # seeds used with --quick
     reward_variants: tuple = ("task", "task_collision", "task_cbf")
-    # 實驗 1：每個 policy 在過濾器關 / 開下各測一次；過濾器用哪個版本、球資訊從哪來
+    # Exp 1: each policy with the filter off / on; which filter version, and where its ball info comes from
     exp1_filter_mode: str = "lag_aware"
-    exp1_filter_source: str = "truth"          # 用真實值 = 過濾器的上限；感測不準的影響留給實驗 3
-    # 實驗 2：簡單版 vs 考慮延遲版 × 每步重新規劃 vs 只決定一次；上層用寫死的指令（不需要 PPO）
+    exp1_filter_source: str = "truth"          # truth = best case for the filter; the effect of bad sensing is Exp 3
+    # Exp 2: naive vs lag-aware × replan every step vs decide once; scripted high-level command (no PPO needed)
     exp2_policy: str = "scripted"
     exp2_filters: tuple = ("naive", "lag_aware")
     exp2_replan: tuple = ("every_step", "commit")
-    # 實驗 3：球資訊來源
+    # Exp 3: ball information source
     exp3_sources: tuple = ("truth", "noisy_truth", "depth_tracker")
-    exp3_reward_variant: str = "task_cbf"      # 實驗 3 用哪個 policy（對應 run 腳本裡的 POLICY_FILES）
+    exp3_reward_variant: str = "task_cbf"      # which policy Exp 3 uses (matches POLICY_FILES in the run script)
     exp3_filter_mode: str = "lag_aware"
-    height_buckets: tuple = (("low", 0.0, 0.2), ("mid", 0.2, 0.4), ("high", 0.4, 10.0))   # 依球抵達高度分組
+    height_buckets: tuple = (("low", 0.0, 0.2), ("mid", 0.2, 0.4), ("high", 0.4, 10.0))   # group by ball arrival height
 
 
 @dataclass
@@ -361,7 +366,7 @@ class Config:
     exp: ExperimentConfig = field(default_factory=ExperimentConfig)
 
     def to_dict(self) -> dict:
-        """轉成可以存成 JSON 的 dict（Path 轉字串），每次實驗都存一份，方便重現。"""
+        """Convert to a JSON-safe dict (Paths become strings). Saved with every run so it can be reproduced."""
         def clean(x):
             if isinstance(x, dict):
                 return {k: clean(v) for k, v in x.items()}

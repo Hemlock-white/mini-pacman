@@ -1,15 +1,15 @@
-"""結果的存檔、統計、畫圖（matplotlib）。
+"""Saving results, statistics and plots (matplotlib).
 
-結果檔格式
+Results format
+--------------
+One ``.jsonl`` file per experiment condition, one line per episode (format: EPISODE_SCHEMA in evaluate.py).
+``summarize()`` turns all episodes of a condition into one row of statistics, ``write_csv()`` saves rows as CSV.
+The CSV opens directly in Excel or MATLAB (MATLAB: ``readtable("summary.csv")``).
+
+Statistics
 ----------
-每個實驗條件一個 ``.jsonl`` 檔，一行一個 episode（格式見 evaluate.py 的 EPISODE_SCHEMA）。
-``summarize()`` 把一個條件的所有 episode 算成一列統計，``write_csv()`` 存成 CSV。
-CSV 可以直接用 Excel 或 MATLAB 開（MATLAB：``readtable("summary.csv")``）。
-
-統計方式
---------
-比例（成功率、碰撞率）附 95% Wilson 信賴區間：seed 只有 100 個時，3% 和 6% 可能其實沒有差別，
-報告時要看區間有沒有重疊，不要只看平均。
+Rates (success, collision) come with a 95% Wilson confidence interval: with only 100 seeds, 3% vs 6% may be no real
+difference, so check whether the intervals overlap in the report instead of only comparing means.
 """
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ from pathlib import Path
 import numpy as np
 
 
-# ---------------- 存讀檔 ----------------
+# ---------------- save / load ----------------
 def save_jsonl(records: list[dict], path: str | Path) -> None:
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -57,9 +57,9 @@ def _json_default(x):
     raise TypeError(type(x))
 
 
-# ---------------- 統計 ----------------
+# ---------------- statistics ----------------
 def wilson(k: int, n: int, z: float = 1.96) -> tuple[float, float, float]:
-    """比例 k/n 的 (估計值, 95% 下界, 95% 上界)。n=0 時回傳 nan。"""
+    """(estimate, 95% lower bound, 95% upper bound) of the rate k/n. Returns nan when n=0."""
     if n == 0:
         return float("nan"), float("nan"), float("nan")
     p = k / n
@@ -70,15 +70,15 @@ def wilson(k: int, n: int, z: float = 1.96) -> tuple[float, float, float]:
 
 
 def summarize(episodes: list[dict], height_buckets=(("low", 0.0, 0.2), ("mid", 0.2, 0.4), ("high", 0.4, 10.0))) -> dict:
-    """把一個條件的所有 episode 算成一列統計。
+    """Turn all episodes of one condition into one row of statistics.
 
-    欄位：
-      n_episodes、success_rate(+_lo/_hi)、fall_rate、t_goal_mean
-      n_balls（發射的球數）、collision_rate(+_lo/_hi) = 被打到的球 / 發射的球
-      episode_hit_rate = 至少被打到一次的 episode 比例
-      min_clearance_median、intervention_mean、filter_active_frac_mean
-      collision_rate_<low|mid|high>、n_balls_<...>：依球抵達高度分組
-      collision_rate_<direct|bounce>：依軌跡類型分組
+    Columns:
+      n_episodes, success_rate(+_lo/_hi), fall_rate, t_goal_mean
+      n_balls (balls launched), collision_rate(+_lo/_hi) = balls that hit / balls launched
+      episode_hit_rate = fraction of episodes hit at least once
+      min_clearance_median, intervention_mean, filter_active_frac_mean
+      collision_rate_<low|mid|high>, n_balls_<...>: grouped by ball arrival height
+      collision_rate_<direct|bounce>: grouped by trajectory type
     """
     n = len(episodes)
     row: dict = {"n_episodes": n}
@@ -135,10 +135,10 @@ def print_table(rows: list[dict], cols=("condition", "success_rate", "collision_
         print("  ".join(cells))
 
 
-# ---------------- 畫圖 ----------------
+# ---------------- plots ----------------
 def bar_chart(rows: list[dict], metric: str, path: str | Path, title: str, ylabel: str,
               label_key: str = "condition", ci: bool = True) -> None:
-    """長條圖；metric 有 _lo/_hi 欄位時畫 95% 信賴區間。"""
+    """Bar chart; draws the 95% confidence interval when the metric has _lo/_hi columns."""
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
@@ -162,7 +162,7 @@ def bar_chart(rows: list[dict], metric: str, path: str | Path, title: str, ylabe
 
 
 def plot_exp3(rows: list[dict], out_dir: str | Path) -> None:
-    """實驗 3：不同球資訊來源下的碰撞率、成功率、最小距離。"""
+    """Exp 3: collision rate, success rate and closest distance for each ball information source."""
     out_dir = Path(out_dir)
     bar_chart(rows, "collision_rate", out_dir / "exp3_collision_rate.png",
               "Exp 3: ball information source", "collision rate (hit balls / thrown)")
@@ -173,20 +173,21 @@ def plot_exp3(rows: list[dict], out_dir: str | Path) -> None:
 
 
 def plot_exp1(rows: list[dict], out_dir: str | Path) -> None:
-    """實驗 1 的圖。
+    """Plots for Exp 1.
 
-    TODO（你們實作）：建議兩張圖
-      1. 碰撞率：x 軸三種 reward，每組兩根長條（過濾器關 / 開），附 95% 信賴區間。
-      2. 成功率與 intervention_mean（過濾器開的那三組）：看「學會閃的 policy 是不是比較少需要過濾器出手」。
-    可以參考 bar_chart() 和 plot_exp3() 的寫法；分組長條圖用 ax.bar(x ± 寬度/2, ...)。
+    TODO (yours): two plots suggested
+      1. Collision rate: three rewards on the x axis, two bars each (filter off / on), with 95% confidence intervals.
+      2. Success rate and intervention_mean (the three filter-on groups): does a policy that learned to dodge need
+         the filter to step in less?
+    See bar_chart() and plot_exp3() for how it's done; grouped bars are ax.bar(x ± width/2, ...).
     """
-    raise NotImplementedError("TODO：實作 plot_exp1（見 docstring）")
+    raise NotImplementedError("TODO: implement plot_exp1 (see docstring)")
 
 
 def plot_exp2(rows: list[dict], out_dir: str | Path) -> None:
-    """實驗 2 的圖。
+    """Plots for Exp 2.
 
-    TODO（你們實作）：2×2 的碰撞率（簡單版 / 考慮延遲版 × 每步重新規劃 / 只決定一次），
-    以及依球抵達高度分組的碰撞率（collision_rate_low / mid / high）。
+    TODO (yours): the 2×2 collision rates (naive / lag-aware × replan every step / decide once), and the collision
+    rate grouped by ball arrival height (collision_rate_low / mid / high).
     """
-    raise NotImplementedError("TODO：實作 plot_exp2（見 docstring）")
+    raise NotImplementedError("TODO: implement plot_exp2 (see docstring)")

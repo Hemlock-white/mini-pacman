@@ -1,37 +1,37 @@
-"""用 rsl_rl 5.4.0 訓練 PPO。【train() 你們實作；make_train_cfg() 已經寫好參數】
+"""Train PPO with rsl_rl 5.4.0. [train() is yours; make_train_cfg() already has the parameters]
 
-rsl_rl 和課程 MT06 的對照（給沒用過 rsl_rl 的組員）
--------------------------------------------------
-PPO 演算法本身和 MT06 一模一樣，只是 rsl_rl 把每一塊包成類別，而且一次跑很多個環境：
+rsl_rl vs the course's MT06 (for teammates who haven't used rsl_rl)
+-------------------------------------------------------------------
+The PPO algorithm is exactly the same as MT06; rsl_rl just wraps each piece in a class and runs many environments at once:
 
 ============================  ===========================================  =========================
-MT06（MT06_RL_PPO.ipynb）       rsl_rl 5.4.0                                  這裡的設定
+MT06 (MT06_RL_PPO.ipynb)      rsl_rl 5.4.0                                 setting here
 ============================  ===========================================  =========================
-build_actor()                 rsl_rl.models.MLPModel（"actor"）              actor.hidden_dims
-build_value_function()        rsl_rl.models.MLPModel（"critic"）             critic.hidden_dims
-utils.PPOBuffer               rsl_rl.storage.RolloutStorage                 （自動建立）
-compute_gae()                 PPO.compute_returns()（gamma、lam）            algorithm.gamma / lam
-ppo_update()                  PPO.update()                                  algorithm.*
-collect_rollout()             OnPolicyRunner.learn() 裡的收集迴圈             num_steps_per_env
+build_actor()                 rsl_rl.models.MLPModel ("actor")             actor.hidden_dims
+build_value_function()        rsl_rl.models.MLPModel ("critic")            critic.hidden_dims
+utils.PPOBuffer               rsl_rl.storage.RolloutStorage                (created automatically)
+compute_gae()                 PPO.compute_returns() (gamma, lam)           algorithm.gamma / lam
+ppo_update()                  PPO.update()                                 algorithm.*
+collect_rollout()             the collection loop inside OnPolicyRunner.learn()  num_steps_per_env
 run_training()                OnPolicyRunner.learn(num_learning_iterations)  max_iterations
-args.num_steps = 2048         num_steps_per_env × num_envs（24 × 256）        每次更新收集的步數
+args.num_steps = 2048         num_steps_per_env × num_envs (24 × 256)      steps collected per update
 args.update_epochs = 10       num_learning_epochs = 5
 args.num_minibatches = 32     num_mini_batches = 4
 args.clip_coef = 0.2          clip_param = 0.2
 args.ent_coef = 0.0           entropy_coef = 0.005
 args.vf_coef = 0.5            value_loss_coef = 1.0
 args.max_grad_norm = 0.5      max_grad_norm = 1.0
-args.anneal_lr                schedule = "adaptive"（依 KL 自動調學習率）     desired_kl = 0.01
-一個環境 envs.step()           MiniPacmanVecEnv.step()：num_envs 個一起        vec_env.py
+args.anneal_lr                schedule = "adaptive" (learning rate follows the KL)  desired_kl = 0.01
+one env, envs.step()          MiniPacmanVecEnv.step(): num_envs at once    vec_env.py
 ============================  ===========================================  =========================
 
-多出來的兩個概念：
-* obs_groups：觀測分組。actor 和 critic 可以看不同的東西（非對稱 actor-critic），
-  例如 critic 多看真實的球狀態，訓練比較穩；部署時只用 actor。
-* obs_normalization：自動把觀測正規化（MT06 沒有）。
+Two extra ideas:
+* obs_groups: observation groups. The actor and critic can see different things (asymmetric actor-critic), e.g. the
+  critic also sees the true ball state, which makes training more stable; only the actor is used at deployment.
+* obs_normalization: normalises observations automatically (MT06 doesn't).
 
-訓練完的 checkpoint 存在 log_dir/model_<iteration>.pt。要用它做實驗時，
-把路徑填進 run_mini_pacman_experiments.py 最上面的 POLICY_FILES。
+Trained checkpoints are saved as log_dir/model_<iteration>.pt. To use one in the experiments, put its path in
+POLICY_FILES at the top of run_mini_pacman_experiments.py.
 """
 from __future__ import annotations
 
@@ -41,7 +41,7 @@ from .config import Config
 
 
 def make_train_cfg(cfg: Config, reward_variant: str) -> dict:
-    """rsl_rl OnPolicyRunner 的 train_cfg（參數來自 config.PPOConfig，大多照 PAC-MAN 的 rl_cfg.py）。"""
+    """train_cfg for rsl_rl's OnPolicyRunner (parameters from config.PPOConfig, mostly the same as PAC-MAN's rl_cfg.py)."""
     p = cfg.ppo
     model = {
         "hidden_dims": list(p.hidden_dims),
@@ -81,18 +81,18 @@ def make_train_cfg(cfg: Config, reward_variant: str) -> dict:
 
 def train(cfg: Config, reward_variant: str, seed: int, log_dir: Path, device: str,
           max_iterations: int | None = None, num_envs: int | None = None, resume: Path | None = None) -> Path:
-    """訓練一個 policy，回傳最後一個 checkpoint 的路徑。
+    """Train one policy and return the path of the last checkpoint.
 
-    步驟：
-      1. torch.manual_seed(seed)、np.random.seed(seed)
+    Steps:
+      1. torch.manual_seed(seed), np.random.seed(seed)
       2. env = MiniPacmanVecEnv(cfg, reward_variant, num_envs or cfg.ppo.num_envs, cfg.ppo.num_workers,
                                 device, seed, filter_mode=None, augment_depth=True)
-         （訓練時不開過濾器，「教會」的效果才是單純的）
+         (no filter during training, so the "taught" effect is pure)
       3. runner = rsl_rl.runners.OnPolicyRunner(env, make_train_cfg(cfg, reward_variant), str(log_dir), device)
-      4. resume 不是 None 時 runner.load(str(resume))
+      4. if resume is not None: runner.load(str(resume))
       5. runner.learn(num_learning_iterations=max_iterations or cfg.ppo.max_iterations)
-      6. env.close()；回傳 log_dir 裡編號最大的 model_*.pt
+      6. env.close(); return the model_*.pt with the highest number in log_dir
 
-    注意：rsl_rl 的 make_train_cfg 字典會被 runner 修改（pop class_name），每次都重新呼叫 make_train_cfg。
+    Note: the runner modifies the make_train_cfg dict (it pops class_name), so call make_train_cfg again every time.
     """
-    raise NotImplementedError("TODO：train（見 docstring）")
+    raise NotImplementedError("TODO: train (see docstring)")

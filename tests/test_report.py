@@ -1,4 +1,4 @@
-"""report.py 與實驗 3 的流程（用假的 episode 結果，不需要 policy 或環境）。"""
+"""report.py and the Exp 3 flow (with fake episode results; no policy or environment needed)."""
 import argparse
 import importlib
 
@@ -39,7 +39,7 @@ def test_summarize_and_plot(tmp_path):
 
 
 def test_part_exp3_flow(tmp_path, monkeypatch, cfg):
-    """實驗 3 的流程：4 個條件（不開過濾器 + 3 種球資訊來源）都有跑、都有存檔和統計。"""
+    """Exp 3 flow: all 4 conditions (filter off + 3 ball information sources) run, are saved and summarised."""
     run = importlib.import_module("run_mini_pacman_experiments")
     import minipacman.evaluate as ev
     fake_policy = tmp_path / "policy.pt"

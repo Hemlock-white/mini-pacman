@@ -1,31 +1,33 @@
-"""從深度圖找出球、追蹤球的位置和速度。
+"""Find balls in the depth image and track their position and velocity.
 
-CBF 過濾器需要「球在哪、速度多少」的數字，深度相機只給影像，所以中間需要這一層：
+The CBF filter needs numbers ("where is the ball, how fast"), but the depth camera only gives an image, so this
+layer sits in between:
 
-    深度圖 ──BallDetector──► 每張圖的偵測結果（球心位置、半徑）
-           ──BallTracker───► 每顆球的估計（位置、速度、半徑），含落地彈跳
+    depth image ──BallDetector──► detections per image (ball centre, radius)
+                ──BallTracker───► an estimate per ball (position, velocity, radius), including floor bounces
 
-BallDetector 兩種模式（TrackerConfig.mode）
-------------------------------------------
-* ``"segmented"``：用每個像素打到的 geom 找出球的像素。這是理想化的「完美分割」，
-  和 PAC-MAN 的 BallOnlyDepthObs 一樣。真實機器人需要另外做偵測（例如顏色或學習的模型）。
-* ``"geometric"``：只用深度。把每個像素換成 3D 點，去掉「接近地面」和「在機器人身上」的點，
-  剩下的就是候選。比較真實，但地面雜訊或球在地上滾時會比較不準。
+BallDetector has two modes (TrackerConfig.mode)
+-----------------------------------------------
+* ``"segmented"``: finds ball pixels from the geom each pixel hit. This is idealised "perfect segmentation", the same
+  as PAC-MAN's BallOnlyDepthObs. A real robot would need a separate detector (e.g. colour or a learned model).
+* ``"geometric"``: depth only. Turn each pixel into a 3D point, drop points "near the floor" and points "on the
+  robot", and what is left are candidates. More realistic, but less accurate with floor noise or a rolling ball.
 
-球心怎麼估
-----------
-相機只看到球朝向相機的那一面。把看到的表面點平均，再沿著視線往後推 (2/3)·r 就是球心
-（球面投影到圓盤上，表面深度的平均是 r·2/3）。半徑 r 由球在影像中佔的立體角估計：
-s = sqrt(Ω/π) ≈ r / 球心距離。像素很少時估得很差，所以會夾在 BallConfig.radius_range 內，
-追蹤器再對每顆球的半徑做平均。
+How the ball centre is estimated
+--------------------------------
+The camera only sees the side of the ball facing it. Average the visible surface points, then push back along the
+line of sight by (2/3)·r to get the centre (projected onto a disc, the average surface depth of a sphere is r·2/3).
+The radius r comes from the solid angle the ball covers in the image: s = sqrt(Ω/π) ≈ r / distance to the centre.
+With very few pixels this is poor, so it is clipped to BallConfig.radius_range and the tracker averages it per ball.
 
 BallTracker
 -----------
-每顆球一個卡爾曼濾波器，狀態 [位置(3), 速度(3)]，運動模型是拋體（已知重力）。
-* 預測時如果球心低於半徑（落地），就把垂直速度乘 -e（e 用 restitution_range 的平均），
-  並加大垂直速度的不確定度，因為真實的 e 不知道。
-* 資料關聯：預測位置和偵測位置距離小於 gate 就配對（由近到遠貪婪配對）。
-* 新的偵測先開一條「暫定」軌跡，連續看到 confirm_hits 次才輸出；連續 max_misses 次沒看到就刪除。
+One Kalman filter per ball, state [position(3), velocity(3)], projectile motion model (known gravity).
+* If a prediction puts the centre below the radius (touchdown), the vertical velocity is multiplied by -e (e = mean of
+  restitution_range) and the vertical-velocity uncertainty is increased, since the true e is unknown.
+* Data association: a prediction and a detection are paired if they are closer than the gate (greedy, nearest first).
+* A new detection starts a "tentative" track; it is reported after confirm_hits sightings in a row and deleted after
+  max_misses misses in a row.
 """
 from __future__ import annotations
 
@@ -43,25 +45,25 @@ G = 9.81
 
 @dataclass
 class BallEstimate:
-    """一顆球的狀態估計（所有球資訊來源共用這個格式）。"""
+    """State estimate of one ball (the format shared by every ball information source)."""
     id: int
-    position: np.ndarray       # 世界座標 (m)
-    velocity: np.ndarray       # 世界座標 (m/s)
+    position: np.ndarray       # world frame (m)
+    velocity: np.ndarray       # world frame (m/s)
     radius: float
-    restitution: float         # 真實值或先驗平均
-    stamp: float               # 這個估計對應的時間 (s)；有延遲時 < 現在時間
+    restitution: float         # true value or prior mean
+    stamp: float               # the time this estimate refers to (s); earlier than now when there is latency
     source: str                # "truth" / "noisy_truth" / "depth_tracker"
-    pos_std: float = 0.0       # 位置不確定度 (m)
-    vel_std: float = 0.0       # 速度不確定度 (m/s)
+    pos_std: float = 0.0       # position uncertainty (m)
+    vel_std: float = 0.0       # velocity uncertainty (m/s)
 
 
 @dataclass
 class Detection:
-    position: np.ndarray       # 估計的球心（世界座標）
+    position: np.ndarray       # estimated ball centre (world frame)
     radius: float
     n_pixels: int
-    range: float               # 相機到看到的表面的平均距離
-    sigma: float               # 這個偵測的位置不確定度 (m)
+    range: float               # mean distance from the camera to the visible surface
+    sigma: float               # position uncertainty of this detection (m)
 
 
 class BallDetector:
@@ -72,19 +74,19 @@ class BallDetector:
         self.r_lo, self.r_hi = self.cfg.balls.radius_range
 
     def detect(self, frame: DepthFrame, d: mujoco.MjData | None = None) -> list[Detection]:
-        """回傳這張深度圖裡的球。geometric 模式需要 d（用來去掉機器人身上的點）。"""
+        """Return the balls in this depth image. Geometric mode needs d (to remove points on the robot)."""
         finite = np.isfinite(frame.depth)
         if self.tc.mode == "segmented":
             mask = self.cam.ball_mask(frame)
             pts = frame.points().reshape(self.cam.H, self.cam.W, 3)
         elif self.tc.mode == "geometric":
             if d is None:
-                raise ValueError("geometric 模式需要 MjData")
+                raise ValueError("geometric mode needs MjData")
             pts = frame.points().reshape(self.cam.H, self.cam.W, 3)
             mask = finite & (np.nan_to_num(pts[..., 2], nan=-1.0) > self.tc.floor_threshold)
             mask &= ~self._on_robot(pts, d)
         else:
-            raise ValueError(f"未知的 tracker mode: {self.tc.mode}")
+            raise ValueError(f"unknown tracker mode: {self.tc.mode}")
         labels, n = ndimage.label(mask, structure=np.ones((3, 3)))
         out = []
         for k in range(1, n + 1):
@@ -110,7 +112,7 @@ class BallDetector:
         return out
 
     def _on_robot(self, pts: np.ndarray, d: mujoco.MjData) -> np.ndarray:
-        """在機器人附近（車身座標的一個盒子內）的點。"""
+        """Points near the robot (inside a box in the body frame)."""
         b = self.cam.ids.base_body
         R = d.xmat[b].reshape(3, 3)
         local = np.nan_to_num(pts - d.xpos[b], nan=1e3) @ R
@@ -144,7 +146,7 @@ class BallTracker:
         self._next_id = 0
         self.t = None
 
-    # ---------------- 卡爾曼濾波 ----------------
+    # ---------------- Kalman filter ----------------
     def _predict(self, tr: _Track, t: float) -> None:
         dt = t - tr.t
         if dt <= 0:
@@ -160,7 +162,7 @@ class BallTracker:
         Q[0:3, 3:6] = Q[3:6, 0:3] = dt ** 3 / 2 * q * np.eye(3)
         Q[3:6, 3:6] = dt ** 2 * q * np.eye(3)
         P = F @ tr.P @ F.T + Q
-        if x[2] < tr.radius and x[5] < 0:              # 落地：反彈
+        if x[2] < tr.radius and x[5] < 0:              # touchdown: bounce
             x[2] = tr.radius + (tr.radius - x[2])
             x[5] = -self.e_prior * x[5]
             P[5, 5] += (self.e_std * x[5] / max(self.e_prior, 1e-3)) ** 2 + 0.1
@@ -179,9 +181,9 @@ class BallTracker:
         tr.hits += 1
         tr.misses = 0
 
-    # ---------------- 主流程 ----------------
+    # ---------------- main loop ----------------
     def update(self, detections: list[Detection], t: float) -> list[BallEstimate]:
-        """用這一張圖的偵測結果更新所有軌跡，回傳已確認的球。"""
+        """Update all tracks with this image's detections and return the confirmed balls."""
         for tr in self.tracks:
             self._predict(tr, t)
         pairs = []

@@ -1,11 +1,12 @@
-"""執行環境資訊：GPU、ROCm/CUDA、套件版本、git commit。
+"""Run environment info: GPU, ROCm/CUDA, package versions, git commit.
 
-課程評分規定（Final Project Reference.pdf 第 10 頁，必要條件，沒達到就不評分）：
+Course grading rules (Final Project Reference.pdf page 10, mandatory; miss either and the project is not graded):
     * Every result you report must be produced on AMD ROCm. CUDA or CPU-only runs are not accepted.
     * The implementation must run on the Ryzen AI MAX+ 395 machines provided in class.
 
-所以每次訓練和實驗都會呼叫 ``device_report()`` 存一份紀錄，不是 ROCm 時大聲警告。
-注意：MuJoCo 模擬本來就在 CPU 上跑；「ROCm」指的是 PyTorch（policy 訓練與推論）要用 AMD GPU。
+So every training run and experiment calls ``device_report()`` and saves a record, and warns loudly when it is not
+ROCm. Note: the MuJoCo simulation always runs on the CPU; "ROCm" means PyTorch (policy training and inference) must
+use the AMD GPU.
 """
 from __future__ import annotations
 
@@ -20,7 +21,7 @@ from .config import REPO_ROOT
 
 
 def pick_device(requested: str | None = None) -> str:
-    """選 PyTorch 裝置。ROCm 版的 PyTorch 也是用 "cuda" 這個名字。"""
+    """Pick the PyTorch device. The ROCm build of PyTorch also calls it "cuda"."""
     import torch
     if requested:
         return requested
@@ -28,7 +29,7 @@ def pick_device(requested: str | None = None) -> str:
 
 
 def device_report(device: str | None = None) -> dict:
-    """回傳一個 dict，記錄這次執行的硬體與軟體版本。"""
+    """Return a dict with the hardware and software versions of this run."""
     info = {
         "python": sys.version.split()[0],
         "platform": platform.platform(),
@@ -62,10 +63,11 @@ def device_report(device: str | None = None) -> dict:
 
 
 def warn_if_not_rocm(info: dict) -> None:
-    """不是在 AMD ROCm GPU 上跑時發出警告（結果不能放進報告）。"""
+    """Warn when not running on an AMD ROCm GPU (results can't go in the report)."""
     if not info.get("rocm"):
-        msg = (f"這次不是在 AMD ROCm GPU 上執行（device={info.get('device')}, gpu={info.get('gpu_name')}, "
-               f"hip={info.get('torch_hip')}）。依課程規定，這次的結果不能放進報告，只能用來開發和除錯。")
+        msg = (f"This run is NOT on an AMD ROCm GPU (device={info.get('device')}, gpu={info.get('gpu_name')}, "
+               f"hip={info.get('torch_hip')}). Under the course rules these results can't go in the report; "
+               f"use them for development and debugging only.")
         warnings.warn(msg, stacklevel=2)
         print("!" * 100 + "\n" + msg + "\n" + "!" * 100)
 

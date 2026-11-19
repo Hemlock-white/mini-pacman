@@ -2,91 +2,91 @@
 
 ## Pipeline
 
-每 0.02 秒跑一次這個流程：
+This loop runs every 0.02 s:
 
 ```mermaid
 flowchart LR
-    sim["MuJoCo<br/>TITA + 丟過來的球"] --> cam["深度相機"]
-    sim --> imu["IMU + encoder"]
-    cam --> depth["疊 4 張深度圖"]
-    cam --> trk["追蹤器<br/>算球在哪、多快"]
-    imu --> est["狀態估測"]
+    sim["MuJoCo<br/>TITA + incoming balls"] --> cam["depth camera"]
+    sim --> imu["IMU + encoders"]
+    cam --> depth["4 stacked depth images"]
+    cam --> trk["tracker<br/>where the ball is, how fast"]
+    imu --> est["state estimator"]
     depth --> ppo["PPO policy"]
     est --> ppo
-    ppo -- "速度 / 轉彎 / 蹲下" --> cbf{"CBF 過濾器<br/>可開可關"}
+    ppo -- "speed / turn / crouch" --> cbf{"CBF filter<br/>on or off"}
     trk --> cbf
-    cbf -- "安全的指令" --> lqr["LQR 平衡"]
+    cbf -- "safe command" --> lqr["LQR balance"]
     est --> lqr
-    lqr -- "2 個輪子 + 6 個腿關節" --> sim
+    lqr -- "2 wheels + 6 leg joints" --> sim
 ```
 
-PPO 決定要開多快、要不要轉彎、要不要蹲，CBF 在快撞到的時候把指令改掉一點點，LQR 負責不要倒。
+PPO decides how fast to go, whether to turn and whether to crouch. The CBF changes the command a little when a hit is about to happen, and the LQR keeps the robot from falling over.
 
-## 實驗
+## Experiments
 
-| 實驗 | 想知道什麼 | 比什麼 | 組數 |
+| | What we want to know | What we compare | Groups |
 |---|---|---|---|
-| 實驗 1 | 安全要在訓練的時候教，還是跑的時候直接擋？ | 3 種 reward（只管到終點 / 被打到扣分 / 加 CBF 項）× 過濾器 關、開 | 6 |
-| 實驗 2 | TITA 加速要 0.36 秒，過濾器沒算到這個延遲會不會出事？ | 簡單版、考慮延遲版 × 每一步重算、只決定一次，再加一組不開過濾器 | 5 |
-| 實驗 3 | 球的位置不準的時候，過濾器還有沒有用？ | 球的資訊用 真實值 / 加雜訊跟延遲 / 深度相機估的，再加一組不開過濾器 | 4 |
+| Exp 1 | Should safety be taught during training, or just blocked at runtime? | 3 rewards (only reach the goal / minus points when hit / plus a CBF term) × filter off, on | 6 |
+| Exp 2 | TITA needs 0.36 s to speed up. Does it break the filter if the filter ignores that lag? | naive, lag-aware × replan every step, decide once, plus one group with no filter | 5 |
+| Exp 3 | Is the filter still useful when the ball position isn't accurate? | ball info from the true value / with noise and lag / estimated by the depth camera, plus one group with no filter | 4 |
 
-每組都跑同一批 100 個 seed，看有沒有到終點、被打到幾顆、離球最近多近、過濾器出手多少。
-全部要在 AMD 的機器上跑（課程規定，CUDA 跑的不算）。
+Every group runs the same 100 seeds. We look at: did it reach the goal, how many balls hit, how close the balls got, and how much the filter stepped in.
+Everything has to run on the AMD machine (course rule, CUDA runs don't count).
 
-## 機器人：TITA
+## Robot: TITA
 
 ![TITA](docs/tita.png)
 
-Direct Drive Technology（DDT）的 TITA，兩隻腳加兩個輪子，8 個關節，25.7 kg。
+TITA from Direct Drive Technology (DDT): two legs plus two wheels, 8 joints, 25.7 kg.
 
-模型來源：[DDTRobot/ddt_ros2_control](https://github.com/DDTRobot/ddt_ros2_control) 裡的 `urdfs/tita_description`（commit `beb05df`），上面那張是我們用 MuJoCo 畫的。
-這個模型沒有寫授權，所以沒有放進 repo，要自己跑 `python scripts/download_tita.py` 下載。
+Model source: `urdfs/tita_description` in [DDTRobot/ddt_ros2_control](https://github.com/DDTRobot/ddt_ros2_control) (commit `beb05df`). The picture above is our own MuJoCo render.
+The model doesn't come with a license, so it's not in this repo. Run `python scripts/download_tita.py` to download it.
 
-## 檔案在幹嘛
+## What each file does
 
 ```
 mini-pacman/
-├── train_mini_pacman_policy.py     訓練 PPO，--reward 選哪種 reward
-├── run_mini_pacman_experiments.py  跑實驗，--part 選跑哪個；要用哪個 policy 改最上面的 POLICY_FILES
+├── train_mini_pacman_policy.py     train PPO, --reward picks which reward
+├── run_mini_pacman_experiments.py  run experiments, --part picks which one; set the policy files in POLICY_FILES at the top
 ├── minipacman/
-│   ├── config.py           所有參數都在這，要改數字就改這裡
-│   ├── scene.py            做 MuJoCo 場景（TITA + 地板 + 5 顆球）
-│   ├── env.py              TITA 本體：載模型、擺姿勢、讀狀態
-│   ├── lqr.py              LQR 平衡，把指令變成馬達指令
-│   ├── sensors.py          IMU、encoder（會加雜訊）
-│   ├── state_estimator.py  用 IMU + encoder 猜機器人現在的狀態
-│   ├── balls.py            丟球、彈跳、預測球會飛去哪、有沒有被打到
-│   ├── depth_camera.py     深度相機
-│   ├── ball_tracker.py     從深度圖找球、追球
-│   ├── ball_sources.py     球的資訊從哪來（真實值 / 加雜訊 / 深度相機）
-│   ├── cbf.py              CBF 的 reward 項跟安全過濾器
-│   ├── dodge_env.py        RL 環境，把上面全部接起來
-│   ├── vec_env.py          一次跑很多個環境，接 rsl_rl
-│   ├── train_ppo.py        PPO 的設定
-│   ├── evaluate.py         用固定 seed 跑一組實驗
-│   ├── report.py           算數字、畫圖
-│   └── runtime.py          記錄用哪張 GPU、是不是 ROCm
+│   ├── config.py           every parameter lives here, change numbers here
+│   ├── scene.py            builds the MuJoCo scene (TITA + floor + 5 balls)
+│   ├── env.py              TITA itself: load the model, set poses, read the state
+│   ├── lqr.py              LQR balance, turns commands into motor commands
+│   ├── sensors.py          IMU, encoders (with noise)
+│   ├── state_estimator.py  guesses the robot state from IMU + encoders
+│   ├── balls.py            throwing, bouncing, predicting where a ball goes, did it hit
+│   ├── depth_camera.py     depth camera
+│   ├── ball_tracker.py     finds and tracks balls in the depth image
+│   ├── ball_sources.py     where the ball info comes from (true value / noisy / depth camera)
+│   ├── cbf.py              CBF reward term and the safety filter
+│   ├── dodge_env.py        the RL environment, wires everything above together
+│   ├── vec_env.py          runs many environments at once, plugs into rsl_rl
+│   ├── train_ppo.py        PPO settings
+│   ├── evaluate.py         runs one experiment group on fixed seeds
+│   ├── report.py           numbers and plots
+│   └── runtime.py          logs which GPU we used and whether it's ROCm
 ├── scripts/
-│   └── download_tita.py    下載 TITA 模型
-├── tests/                  測試，寫完一個模組就把那個測試檔的 skip 拿掉
-├── docs/                   README 用的圖
-├── third_party/            下載的 TITA 放這（不會進 git）
-└── outputs/                訓練跟實驗的結果（不會進 git）
+│   └── download_tita.py    downloads the TITA model
+├── tests/                  tests; when you finish a module, remove the skip line in its test file
+├── docs/                   pictures for this README
+├── third_party/            the downloaded TITA goes here (not in git)
+└── outputs/                training and experiment results (not in git)
 ```
 
-想知道哪些寫好了、哪些還沒：`python run_mini_pacman_experiments.py --part check`
+To see what's done and what's not yet: `python run_mini_pacman_experiments.py --part check`
 
-## 協作：push / pull 不要打架
+## Working together: so push / pull don't fight
 
-幾個規則：
+A few rules:
 
-1. 不要直接在 main 上改，每個人開自己的 branch。
-2. 盡量只改自己負責的檔案。`config.py` 大家都會動，要改之前在群組講一聲。
-3. push 之前先把 main 最新的拉進來，再跑一次 `pytest`，沒壞再 push。
-4. `third_party/`、`outputs/` 不會進 git，訓練出來的 `.pt` 也不要硬加進去（太大）。
-5. 用 PR 合併，至少讓另一個人看過再 merge。
+1. Don't work directly on main. Everyone makes their own branch.
+2. Try to only touch the files you're in charge of. Everyone edits `config.py`, so say it in the group chat before you change it.
+3. Before you push, pull the latest main into your branch and run `pytest` again. Only push if nothing broke.
+4. `third_party/` and `outputs/` don't go into git. Don't force the trained `.pt` files in either (too big).
+5. Merge with a PR, and let at least one other person look at it before merging.
 
-第一次：
+First time:
 
 ```bash
 git clone https://github.com/Hemlock-white/mini-pacman.git
@@ -96,44 +96,44 @@ python scripts/download_tita.py
 pytest
 ```
 
-每次開工：
+Every time you start working:
 
 ```bash
 git checkout main
 git pull
-git checkout -b misha/lqr          # 名字/在做什麼
+git checkout -b misha/lqr          # name/what you're working on
 ```
 
-寫完一段：
+After finishing a chunk:
 
 ```bash
-git status                         # 看改了哪些檔案
-git diff                           # 看改了什麼
+git status                         # which files changed
+git diff                           # what changed
 git add minipacman/lqr.py tests/test_lqr.py
-git commit -m "lqr: 加上轉彎"
+git commit -m "lqr: add turning"
 ```
 
-要 push 之前：
+Before you push:
 
 ```bash
-git pull origin main               # 把別人新推的東西接上來
+git pull origin main               # bring in what others pushed
 pytest
 git push -u origin misha/lqr
-gh pr create --fill                # 開 PR，或直接去 GitHub 網頁按
+gh pr create --fill                # open a PR, or just click it on the GitHub website
 ```
 
-出現 CONFLICT 的時候：
+When you get a CONFLICT:
 
 ```bash
-# 1. 打開它說的那個檔案，找 <<<<<<< 到 >>>>>>> 那段
-# 2. 留下要的內容，把 <<<<<<< ======= >>>>>>> 這些記號刪掉
-git add 那個檔案
+# 1. open the file it names and find the part from <<<<<<< to >>>>>>>
+# 2. keep what you want, delete the <<<<<<< ======= >>>>>>> markers
+git add that-file
 git commit
-# 搞不定想先放棄這次合併：
+# can't sort it out and want to give up on this merge for now:
 git merge --abort
 ```
 
-PR 被 merge 之後：
+After your PR is merged:
 
 ```bash
 git checkout main

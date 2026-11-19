@@ -1,4 +1,4 @@
-"""觀測的排列（obs_layout 已實作，這個測試會一直跑）。"""
+"""Observation layout (obs_layout is done, so this test always runs)."""
 import pytest
 
 from minipacman.dodge_env import obs_layout
@@ -7,7 +7,7 @@ from minipacman.dodge_env import obs_layout
 def _check_contiguous(slices):
     stops = 0
     for s in slices.values():
-        assert s.start == stops, "每一段要緊接著上一段"
+        assert s.start == stops, "each part must start right where the previous one ends"
         stops = s.stop
     return stops
 
@@ -17,7 +17,7 @@ def test_default_dims(cfg):
     assert _check_contiguous(lay["actor"]) == 589
     assert _check_contiguous(lay["critic"]) == 632
     assert lay["actor"]["depth"] == slice(0, 576)
-    assert all(lay["critic"][k] == v for k, v in lay["actor"].items()), "critic 的前段 = actor"
+    assert all(lay["critic"][k] == v for k, v in lay["actor"].items()), "the start of the critic = the actor"
 
 
 def test_tracker_fallback_dims(cfg):

@@ -1,19 +1,20 @@
-"""下載固定版本的 TITA 模型到 third_party/tita/。【你們實作】
+"""Download the pinned version of the TITA model into third_party/tita/. [YOURS]
 
-為什麼不把模型放進 repo：DDTRobot/ddt_ros2_control 的 tita_description 沒有授權（package.xml 寫 TODO），
-不能重新散布，所以用腳本從官方 repo 下載固定的 commit。third_party/ 已經在 .gitignore。
+Why the model isn't in the repo: tita_description in DDTRobot/ddt_ros2_control has no license (package.xml says TODO),
+so we can't redistribute it. This script downloads a pinned commit from the official repo instead.
+third_party/ is already in .gitignore.
 
-用法：
+Usage:
     python scripts/download_tita.py
 
-要做的事（四個 git 指令，參數在 minipacman.config.TitaSource）：
+What to do (four git commands; the parameters are in minipacman.config.TitaSource):
     git init <target_dir>
     git -C <target_dir> remote add origin <repo_url>
     git -C <target_dir> fetch --depth 1 origin <commit>
     git -C <target_dir> checkout FETCH_HEAD
-用 subprocess.run([...], check=True) 執行。已經下載過（<target_dir>/<subdir>/mujoco/robot.xml 存在）就直接結束。
-最後印出模型路徑，並檢查 robot.xml 存在。
-加分：用 sparse checkout 只下載 urdfs/tita_description（git sparse-checkout set <subdir>），比較快。
+Run them with subprocess.run([...], check=True). If it's already downloaded (<target_dir>/<subdir>/mujoco/robot.xml
+exists), just exit. At the end print the model path and check that robot.xml exists.
+Bonus: use sparse checkout to download only urdfs/tita_description (git sparse-checkout set <subdir>); it's faster.
 """
 import sys
 from pathlib import Path
@@ -25,7 +26,7 @@ from minipacman.config import TitaSource  # noqa: E402
 
 def main() -> None:
     src = TitaSource()
-    raise NotImplementedError("TODO：download_tita.py（見檔頭）")
+    raise NotImplementedError("TODO: download_tita.py (see the docstring at the top)")
 
 
 if __name__ == "__main__":

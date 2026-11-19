@@ -1,4 +1,4 @@
-"""深度相機：幾何正確、看得到球、雜訊大小、疊影像。"""
+"""Depth camera: correct geometry, balls are visible, noise level, frame stack."""
 import mujoco
 import numpy as np
 import pytest
@@ -22,8 +22,8 @@ def test_floor_depth_matches_geometry(sim, cfg):
     cam = DepthCamera(m, cfg, ids)
     frame = cam.render(d)
     floor = (frame.geomid == ids.floor_geom).reshape(-1)
-    assert floor.sum() > 100, "相機應該看得到地板"
-    t = -frame.position[2] / frame.dirs_world[floor, 2]          # 光線和 z=0 平面的交點
+    assert floor.sum() > 100, "the camera should see the floor"
+    t = -frame.position[2] / frame.dirs_world[floor, 2]          # where each ray meets the z=0 plane
     assert np.allclose(frame.depth.reshape(-1)[floor], t, atol=1e-6)
 
 
@@ -36,14 +36,14 @@ def test_ball_visible_and_located(sim, cfg, dist):
     target = pos + dist * R[:, 0] + 0.1 * R[:, 1]
     _place_ball(m, d, ids, 0, target, 0.1, cfg)
     frame = cam.render(d)
-    assert cam.ball_mask(frame).sum() >= 1, "高解析度圖裡應該有球的像素"
+    assert cam.ball_mask(frame).sum() >= 1, "the high-res image should have ball pixels"
     img = cam.policy_image(frame)
     assert img.shape == (cfg.camera.policy_res[1], cfg.camera.policy_res[0])
-    assert img.min() < 1.0, "縮成 16x9 後球不能消失（取最小值縮圖）"
+    assert img.min() < 1.0, "the ball must not vanish when shrinking to 16x9 (min pooling)"
     assert np.isclose(img.min(), (dist - 0.1 - cfg.camera.near) / (cfg.camera.far - cfg.camera.near), atol=0.03)
     dets = BallDetector(cam, cfg).detect(frame)
     assert len(dets) == 1
-    tol = 0.03 if dist < 3.5 else 0.08          # 遠處像素少，半徑估計較差
+    tol = 0.03 if dist < 3.5 else 0.08          # far away there are few pixels, so the radius estimate is worse
     assert np.linalg.norm(dets[0].position - target) < tol
 
 
@@ -57,7 +57,7 @@ def test_geometric_detector_without_segmentation(sim, cfg):
     target[2] = 0.5
     _place_ball(m, d, ids, 0, target, 0.1, cfg)
     dets = BallDetector(cam, cfg).detect(cam.render(d), d)
-    assert len(dets) == 1, f"應該只找到 1 顆球，找到 {len(dets)}"
+    assert len(dets) == 1, f"should find exactly 1 ball, found {len(dets)}"
     assert np.linalg.norm(dets[0].position - target) < 0.05
 
 
@@ -75,7 +75,7 @@ def test_noise_magnitude(sim, cfg):
 def test_frame_stack_offsets():
     stack = DepthFrameStack((9, 16), (0, 3, 8, 18))
     assert stack.dim == 4 * 9 * 16
-    assert np.all(stack.get() == 1.0), "重置後全部是 far"
+    assert np.all(stack.get() == 1.0), "all far after reset"
     for k in range(30):
         stack.push(np.full((9, 16), float(k)))
     v = stack.get().reshape(4, 9 * 16)

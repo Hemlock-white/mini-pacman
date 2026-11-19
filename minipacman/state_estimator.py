@@ -1,26 +1,29 @@
-"""狀態估測：用 IMU + encoder 估計 LQR 需要的狀態。【你們實作，四個裡最難的】
+"""State estimation: estimate the state the LQR needs from the IMU + encoders. [YOURS, the hardest of the four]
 
-為什麼需要
-----------
-LQR 的輸入是完整的 qpos / qvel，其中有些量真實機器人量不到：
-    * 底座位置 (x, y, z)            → 沒有感測器，要從輪子轉了多少積分（odometry）
-    * 底座線速度                    → 從輪子轉速 + 車身俯仰角速度推算
-    * 底座姿態、角速度              → IMU
-    * 8 個關節角度、角速度          → encoder
-config.EstimatorConfig.use_true_state = True 時直接用模擬器的真實值，**估測器寫好之前整條流程都用這個**。
+Why we need it
+--------------
+The LQR takes the full qpos / qvel, and a real robot can't measure some of it:
+    * base position (x, y, z)        → no sensor; integrate how far the wheels turned (odometry)
+    * base linear velocity           → from wheel speeds + body pitch rate
+    * base orientation, angular vel. → IMU
+    * 8 joint angles and velocities  → encoders
+With config.EstimatorConfig.use_true_state = True the simulator's true values are used directly. **Use that for the
+whole pipeline until the estimator works.**
 
-建議做法（簡單、夠用）
-----------------------
-1. 姿態：直接用 IMU 的 trunk_quat（已含雜訊，當作 IMU 內建的姿態融合輸出）。
-   想多做一點：用互補濾波 (complementary_alpha) 融合陀螺儀積分與加速度計的重力方向。
-2. 角速度：陀螺儀讀值（IMU 座標 ≈ 車身座標）。
-3. 前進速度：兩輪平均角速度 × 輪半徑，但輪子角速度是「相對車身」的，車身前後傾時輪子也會跟著轉，
-   所以要加回車身的俯仰角速度：
+Suggested approach (simple, good enough)
+----------------------------------------
+1. Orientation: use the IMU's trunk_quat directly (it has noise; treat it as the IMU's built-in orientation fusion).
+   If you want more: fuse integrated gyro with the accelerometer's gravity direction using a complementary filter
+   (complementary_alpha).
+2. Angular velocity: the gyro reading (IMU frame ≈ body frame).
+3. Forward speed: average wheel speed × wheel radius. But wheel speed is measured "relative to the body", and the
+   wheels also turn when the body pitches, so add the body pitch rate back:
        v_forward ≈ R * (mean(wheel_vel) * sign + pitch_rate)
-   （sign 看輪軸方向，用 env.roll 裡的 coef 符號；寫完拿真實值比對就知道對不對）
-4. 位置：v_forward 沿目前朝向積分；z 用腿的運動學（或固定為站姿高度）。
-5. 驗證：在 tests/test_state_estimator.py 裡讓機器人用真實狀態跑一段，比較估計值和真實值。
-   然後把 use_true_state 改成 False，確認 LQR 還站得住（推力測試 30/60/100 N）。
+   (sign depends on the wheel axis direction; use the sign of coef in env.roll. Compare against the true value and
+   you'll know right away if it's right.)
+4. Position: integrate v_forward along the current heading; z from the leg kinematics (or fixed at standing height).
+5. Check: in tests/test_sensors_estimator.py, run the robot on the true state for a while and compare estimate vs
+   truth. Then set use_true_state to False and make sure the LQR still stands (push test 30/60/100 N).
 """
 from __future__ import annotations
 
@@ -33,16 +36,16 @@ from .sensors import EncoderReading, ImuReading
 
 class StateEstimator:
     def __init__(self, m: mujoco.MjModel, cfg: Config, robot_nq: int, robot_nv: int):
-        raise NotImplementedError("TODO：StateEstimator.__init__")
+        raise NotImplementedError("TODO: StateEstimator.__init__")
 
     def reset(self, qpos0: np.ndarray) -> None:
-        """episode 開始：用重置後的真實姿態初始化（開機時機器人知道自己在原點）。"""
+        """Start of an episode: initialise from the true pose after reset (at power-on the robot knows it's at the origin)."""
         raise NotImplementedError
 
     def update(self, imu: ImuReading, enc: EncoderReading, dt: float) -> tuple[np.ndarray, np.ndarray]:
-        """回傳估計的 (qpos[:robot_nq], qvel[:robot_nv])，格式和 MuJoCo 的一樣，LQR 可以直接用。"""
+        """Return the estimated (qpos[:robot_nq], qvel[:robot_nv]) in MuJoCo's format, so the LQR can use them directly."""
         raise NotImplementedError
 
     def planar_state(self):
-        """回傳 cbf.RobotPlanarState（xy、yaw、前進速度、轉彎速度、蹲低程度），給 CBF 和 policy 用。"""
+        """Return a cbf.RobotPlanarState (xy, yaw, forward speed, turn rate, crouch level) for the CBF and the policy."""
         raise NotImplementedError

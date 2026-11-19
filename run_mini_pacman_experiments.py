@@ -1,25 +1,26 @@
-"""跑 Mini PAC-MAN 的所有實驗（訓練另外用 train_mini_pacman_policy.py）。
+"""Run all Mini PAC-MAN experiments (training is separate: train_mini_pacman_policy.py).
 
-用法：
-    python run_mini_pacman_experiments.py --part check                  # 檢查環境與各模組進度
+Usage:
+    python run_mini_pacman_experiments.py --part check                  # check the setup and how far each module is
     python run_mini_pacman_experiments.py --part exp1 exp2 exp3 summary
-    python run_mini_pacman_experiments.py --part all                    # 全部
-    python run_mini_pacman_experiments.py --part all --quick            # 每組只跑幾個 seed，確認整條流程
-    python run_mini_pacman_experiments.py --part exp3 --force           # 已經有結果也重跑
-    python run_mini_pacman_experiments.py --part exp2 --seeds 20        # 自訂 seed 數
+    python run_mini_pacman_experiments.py --part all                    # everything
+    python run_mini_pacman_experiments.py --part all --quick            # only a few seeds per group, to check the whole flow
+    python run_mini_pacman_experiments.py --part exp3 --force           # rerun even if results exist
+    python run_mini_pacman_experiments.py --part exp2 --seeds 20        # custom number of seeds
 
-**要用哪個 policy 檔：改下面的 POLICY_FILES**（相對於 repo 根目錄的路徑）。
+**Which policy files to use: edit POLICY_FILES below** (paths relative to the repo root).
 
-實驗
-----
-    exp1  教會 vs 強制：3 種 reward 的 policy × 過濾器 關 / 開 = 6 組          【你們實作，參考 part_exp3】
-    exp2  簡單 CBF vs 考慮延遲：寫死的指令 × (naive / lag_aware) × (每步 / 只決定一次) = 4 組   【你們實作】
-    exp3  球資訊來源：同一個 policy + 過濾器，球資訊用 真實值 / 加雜訊 / 深度相機估計，另加不開過濾器的參考組  【已實作】
-    summary  讀所有結果，印表格、畫圖
+Experiments
+-----------
+    exp1  taught vs enforced: policies from 3 rewards × filter off / on = 6 groups              [YOURS, see part_exp3]
+    exp2  naive vs lag-aware CBF: scripted command × (naive / lag_aware) × (every step / decide once) = 4 groups   [YOURS]
+    exp3  ball information source: same policy + filter, ball info from truth / noisy / depth camera estimate,
+          plus a filter-off reference group                                                     [DONE]
+    summary  read all results, print tables, make plots
 
-結果放在 outputs/results/<exp>/：每個條件一個 .jsonl（一行一個 episode）、summary.csv、圖。
-每次執行的 GPU、版本、參數記在 outputs/results/run_info.jsonl。
-課程規定：報告用的結果必須在 AMD ROCm 上產生；不是 ROCm 時會印警告，紀錄裡 rocm=false。
+Results go to outputs/results/<exp>/: one .jsonl per condition (one line per episode), summary.csv, plots.
+The GPU, versions and parameters of every run are logged in outputs/results/run_info.jsonl.
+Course rule: results in the report must be produced on AMD ROCm; otherwise a warning is printed and the log says rocm=false.
 """
 import argparse
 import json
@@ -33,7 +34,7 @@ from minipacman.evaluate import Condition
 from minipacman.runtime import device_report, pick_device, warn_if_not_rocm
 
 # ============================================================================================
-# 要評估的 policy（訓練完把路徑填在這裡）
+# Policies to evaluate (put the paths here after training)
 # ============================================================================================
 POLICY_FILES = {
     "task": "outputs/policies/task/RUN_NAME/model_5000.pt",
@@ -45,7 +46,7 @@ PARTS = ("check", "exp1", "exp2", "exp3", "summary")
 
 
 # ============================================================================================
-# 共用
+# Shared helpers
 # ============================================================================================
 def eval_seeds(cfg: Config, args) -> list[int]:
     n = args.seeds or (cfg.exp.quick_seeds if args.quick else cfg.exp.n_eval_seeds)
@@ -55,59 +56,59 @@ def eval_seeds(cfg: Config, args) -> list[int]:
 def policy_path(reward_variant: str) -> str:
     path = REPO_ROOT / POLICY_FILES[reward_variant]
     if not path.exists():
-        raise SystemExit(f"找不到 {reward_variant} 的 policy：{path}\n"
-                         f"請先訓練（python train_mini_pacman_policy.py --reward {reward_variant}），"
-                         f"再把路徑填進 run_mini_pacman_experiments.py 的 POLICY_FILES。")
+        raise SystemExit(f"Cannot find the {reward_variant} policy: {path}\n"
+                         f"Train it first (python train_mini_pacman_policy.py --reward {reward_variant}), "
+                         f"then put the path in POLICY_FILES in run_mini_pacman_experiments.py.")
     return str(path)
 
 
 def run_conditions(conditions: list[Condition], exp_dir: Path, cfg: Config, args) -> list[dict]:
-    """跑一串條件，每個條件的 episode 存成 <exp_dir>/<name>.jsonl，回傳每個條件一列的統計。"""
+    """Run a list of conditions; each condition's episodes go to <exp_dir>/<name>.jsonl. Returns one stats row per condition."""
     from minipacman.evaluate import run_condition
     seeds = eval_seeds(cfg, args)
     rows = []
     for c in conditions:
         t0 = time.time()
-        print(f"  [{c.name}] {len(seeds)} 個 seed ...", flush=True)
+        print(f"  [{c.name}] {len(seeds)} seeds ...", flush=True)
         episodes = run_condition(c, seeds, cfg, exp_dir / f"{c.name}.jsonl", args.device, resume=not args.force)
         row = {"condition": c.name, **c.to_dict(), **report.summarize(episodes, cfg.exp.height_buckets)}
         rows.append(row)
-        print(f"  [{c.name}] 完成，{time.time() - t0:.0f} s；碰撞率 {row['collision_rate']:.3f} "
-              f"[{row['collision_rate_lo']:.3f}, {row['collision_rate_hi']:.3f}]，成功率 {row['success_rate']:.3f}")
+        print(f"  [{c.name}] done in {time.time() - t0:.0f} s; collision rate {row['collision_rate']:.3f} "
+              f"[{row['collision_rate_lo']:.3f}, {row['collision_rate_hi']:.3f}], success rate {row['success_rate']:.3f}")
     report.write_csv(rows, exp_dir / "summary.csv")
     return rows
 
 
 # ============================================================================================
-# 各階段
+# Parts
 # ============================================================================================
 def part_check(cfg: Config, args, out_root: Path) -> None:
-    """檢查：TITA 模型、場景、發球器、深度相機（已實作），以及你們的模組寫到哪了。"""
+    """Check: TITA model, scene, launcher, depth camera (done), and how far your modules are."""
     import mujoco
     import numpy as np
     from minipacman import scene
     from minipacman.balls import BallLauncher
     from minipacman.depth_camera import DepthCamera
 
-    print("== 場景與已實作的元件")
+    print("== Scene and the finished parts")
     m, d = scene.load_model(None, cfg)
     ids = scene.scene_ids(m, cfg)
-    print(f"  場景 OK：nq={m.nq} nv={m.nv}，機器人 dof={ids.robot_nv}，球 {len(ids.ball_geoms)} 顆")
+    print(f"  scene OK: nq={m.nq} nv={m.nv}, robot dofs={ids.robot_nv}, {len(ids.ball_geoms)} balls")
     launcher = BallLauncher(m, d, cfg, ids)
     launcher.reset(np.random.default_rng(0))
-    print(f"  發球器 OK：seed 0 這回合丟 {len(launcher.records)} 顆，時間 "
+    print(f"  launcher OK: seed 0 throws {len(launcher.records)} balls this episode, at "
           f"{[round(r.throw_time, 2) for r in launcher.records]} s")
     mujoco.mj_forward(m, d)
     cam = DepthCamera(m, cfg, ids)
     t0 = time.perf_counter()
     for _ in range(50):
         frame = cam.render(d)
-    print(f"  深度相機 OK：{cam.W}x{cam.H}，每張 {1000 * (time.perf_counter() - t0) / 50:.2f} ms")
+    print(f"  depth camera OK: {cam.W}x{cam.H}, {1000 * (time.perf_counter() - t0) / 50:.2f} ms per image")
 
-    print("== 你們的模組")
+    print("== Your modules")
     checks = [
-        ("env.TitaEnv 介面", lambda: _has_attrs("minipacman.env", "TitaEnv",
-                                                 ["set_leg_targets", "set_wheel_torques", "planar_state"])),
+        ("env.TitaEnv interface", lambda: _has_attrs("minipacman.env", "TitaEnv",
+                                                      ["set_leg_targets", "set_wheel_torques", "planar_state"])),
         ("lqr.clip_to_envelope", lambda: __import__("minipacman.lqr", fromlist=["x"]).clip_to_envelope(
             np.zeros(3), 0.0, cfg.command)),
         ("lqr.ReferenceGenerator", lambda: __import__("minipacman.lqr", fromlist=["x"]).ReferenceGenerator(cfg)),
@@ -117,15 +118,15 @@ def part_check(cfg: Config, args, out_root: Path) -> None:
     for name, fn in checks:
         try:
             fn()
-            print(f"  [OK]   {name}")
+            print(f"  [OK]    {name}")
         except NotImplementedError:
-            print(f"  [TODO] {name}")
+            print(f"  [TODO]  {name}")
         except Exception as e:
-            print(f"  [錯誤] {name}: {type(e).__name__}: {e}")
+            print(f"  [ERROR] {name}: {type(e).__name__}: {e}")
 
-    print("== policy 檔（POLICY_FILES）")
+    print("== Policy files (POLICY_FILES)")
     for rv, p in POLICY_FILES.items():
-        print(f"  {'[OK]  ' if (REPO_ROOT / p).exists() else '[缺少]'} {rv}: {p}")
+        print(f"  {'[OK]     ' if (REPO_ROOT / p).exists() else '[MISSING]'} {rv}: {p}")
 
 
 def _has_attrs(module: str, cls: str, attrs: list[str]) -> None:
@@ -136,37 +137,37 @@ def _has_attrs(module: str, cls: str, attrs: list[str]) -> None:
 
 
 def part_exp1(cfg: Config, args, out_root: Path) -> list[dict]:
-    """實驗 1：教會 vs 強制。【你們實作】
+    """Exp 1: taught vs enforced. [YOURS]
 
-    建議步驟（照 part_exp3 的寫法）：
+    Suggested steps (same style as part_exp3):
       1. conditions = []
          for rv in cfg.exp.reward_variants:                       # "task", "task_collision", "task_cbf"
-             for filt in (None, cfg.exp.exp1_filter_mode):        # 過濾器 關 / 開
+             for filt in (None, cfg.exp.exp1_filter_mode):        # filter off / on
                  conditions.append(Condition(
                      name=f"exp1_{rv}_{'filter' if filt else 'nofilter'}",
                      policy=policy_path(rv), reward_variant=rv, filter_mode=filt,
                      replan="every_step", ball_source=cfg.exp.exp1_filter_source))
       2. rows = run_conditions(conditions, out_root / "exp1", cfg, args)
-      3. report.print_table(rows)；try: report.plot_exp1(rows, out_root / "exp1")
+      3. report.print_table(rows); try: report.plot_exp1(rows, out_root / "exp1")
       4. return rows
     """
-    raise NotImplementedError("TODO：part_exp1（見 docstring）")
+    raise NotImplementedError("TODO: part_exp1 (see docstring)")
 
 
 def part_exp2(cfg: Config, args, out_root: Path) -> list[dict]:
-    """實驗 2：簡單版 vs 考慮延遲版過濾器 × 每步重新規劃 vs 只決定一次。【你們實作】
+    """Exp 2: naive vs lag-aware filter × replan every step vs decide once. [YOURS]
 
-    上層用寫死的指令（Condition.policy = "scripted"，reward_variant 填 "scripted"），
-    這樣結果只反映過濾器，也不用等 PPO 練好就能跑。
-    條件：for fm in cfg.exp.exp2_filters: for rp in cfg.exp.exp2_replan → 4 組，
-    另外加一組不開過濾器的參考（filter_mode=None），共 5 組。球資訊用 "truth"。
-    其餘同 part_exp1；畫圖用 report.plot_exp2。
+    The high-level command is scripted (Condition.policy = "scripted", reward_variant = "scripted"), so the result
+    only reflects the filter, and it can run before PPO is trained.
+    Conditions: for fm in cfg.exp.exp2_filters: for rp in cfg.exp.exp2_replan → 4 groups, plus one filter-off
+    reference (filter_mode=None), 5 in total. Ball info from "truth".
+    Otherwise the same as part_exp1; plot with report.plot_exp2.
     """
-    raise NotImplementedError("TODO：part_exp2（見 docstring）")
+    raise NotImplementedError("TODO: part_exp2 (see docstring)")
 
 
 def part_exp3(cfg: Config, args, out_root: Path) -> list[dict]:
-    """實驗 3：球資訊來源（真實值 / 加雜訊與延遲 / 深度相機估計），加一組不開過濾器的參考。"""
+    """Exp 3: ball information source (truth / noise and latency / depth camera estimate), plus a filter-off reference."""
     rv = cfg.exp.exp3_reward_variant
     pol = policy_path(rv)
     conditions = [Condition(name="exp3_no_filter", policy=pol, reward_variant=rv, filter_mode=None,
@@ -178,18 +179,18 @@ def part_exp3(cfg: Config, args, out_root: Path) -> list[dict]:
     rows = run_conditions(conditions, exp_dir, cfg, args)
     report.print_table(rows)
     report.plot_exp3(rows, exp_dir)
-    print(f"  圖：{exp_dir}/exp3_*.png")
+    print(f"  plots: {exp_dir}/exp3_*.png")
     return rows
 
 
 def part_summary(cfg: Config, args, out_root: Path) -> None:
-    """讀每個實驗資料夾裡的 .jsonl，重新統計、印表格、畫圖。"""
+    """Read the .jsonl files in each experiment folder, recompute the statistics, print tables, make plots."""
     plots = {"exp1": report.plot_exp1, "exp2": report.plot_exp2, "exp3": report.plot_exp3}
     for exp, plot in plots.items():
         exp_dir = out_root / exp
         files = sorted(exp_dir.glob("*.jsonl"))
         if not files:
-            print(f"== {exp}：還沒有結果")
+            print(f"== {exp}: no results yet")
             continue
         rows = [{"condition": f.stem, **report.summarize(report.load_jsonl(f), cfg.exp.height_buckets)}
                 for f in files]
@@ -199,7 +200,7 @@ def part_summary(cfg: Config, args, out_root: Path) -> None:
         try:
             plot(rows, exp_dir)
         except NotImplementedError as e:
-            print(f"  （圖還沒實作：{e}）")
+            print(f"  (plot not implemented yet: {e})")
 
 
 # ============================================================================================
@@ -207,10 +208,10 @@ def main() -> None:
     cfg = default_config()
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--part", nargs="+", required=True, choices=PARTS + ("all",))
-    ap.add_argument("--quick", action="store_true", help=f"每組只跑 {cfg.exp.quick_seeds} 個 seed")
-    ap.add_argument("--seeds", type=int, default=None, help=f"每組幾個 seed（預設 {cfg.exp.n_eval_seeds}）")
-    ap.add_argument("--force", action="store_true", help="已經有的結果也重跑")
-    ap.add_argument("--device", default=None, help="policy 推論用的裝置（預設 cuda:0，ROCm 也叫 cuda）")
+    ap.add_argument("--quick", action="store_true", help=f"only {cfg.exp.quick_seeds} seeds per group")
+    ap.add_argument("--seeds", type=int, default=None, help=f"seeds per group (default {cfg.exp.n_eval_seeds})")
+    ap.add_argument("--force", action="store_true", help="rerun even if results exist")
+    ap.add_argument("--device", default=None, help="device for policy inference (default cuda:0; ROCm is also called cuda)")
     ap.add_argument("--out", type=Path, default=OUTPUT_DIR / "results")
     args = ap.parse_args()
 
@@ -229,12 +230,12 @@ def main() -> None:
         try:
             funcs[p](cfg, args, args.out)
         except NotImplementedError as e:
-            print(f"[TODO] {p} 還沒實作：{e}")
-        except SystemExit as e:              # 例如找不到 policy 檔：印出原因，繼續下一個階段
-            print(f"[略過] {p}：{e}")
+            print(f"[TODO] {p} not implemented yet: {e}")
+        except SystemExit as e:              # e.g. a policy file is missing: print why and go on to the next part
+            print(f"[SKIPPED] {p}: {e}")
         except Exception:
             traceback.print_exc()
-            print(f"[錯誤] {p} 失敗，繼續下一個階段")
+            print(f"[ERROR] {p} failed, going on to the next part")
 
 
 if __name__ == "__main__":

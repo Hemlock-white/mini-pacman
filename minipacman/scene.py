@@ -1,21 +1,23 @@
-"""產生 Mini PAC-MAN 的 MuJoCo 場景，並查出常用的 id。
+"""Build the Mini PAC-MAN MuJoCo scene and look up the ids we use a lot.
 
-場景 = TITA (robot.xml) + 地板 + 燈光 + 腿部位置伺服 + 一池球 (ball_0 ... ball_{N-1})。
+Scene = TITA (robot.xml) + floor + light + leg position servos + a pool of balls (ball_0 ... ball_{N-1}).
 
-* IMU 和 encoder：robot.xml 本來就有（trunk_gyro、trunk_accel、trunk_quat、*_pos、*_vel），不用另外加。
-* 深度相機：不需要 XML 相機。depth_camera.py 用 TITA 真實雙目相機的位置（left_camera / right_camara
-  兩個 body 的中點）算出相機姿態，再用光線投射算深度。
-* 球：每顆球一個 freejoint。球的 dof 一定排在機器人之後，所以機器人的 dof 是 0 .. robot_nv-1。
-  **LQR 線性化只能用機器人的 dof**（把球放進 DARE 會解不出來），見 SceneIds.robot_nv。
+* IMU and encoders: already in robot.xml (trunk_gyro, trunk_accel, trunk_quat, *_pos, *_vel), nothing to add.
+* Depth camera: no XML camera needed. depth_camera.py takes the pose of TITA's real stereo camera (the midpoint of
+  the left_camera / right_camara bodies) and casts rays from there.
+* Balls: each ball has a freejoint. Ball dofs always come after the robot's, so the robot's dofs are 0 .. robot_nv-1.
+  **The LQR linearization must only use the robot's dofs** (putting the balls into the DARE makes it unsolvable),
+  see SceneIds.robot_nv.
 
-和 env.py 的關係
-----------------
-env.py 原本的 write_scene() 只有機器人和地板。之後請把 TitaEnv 改成載入這裡產生的場景：
+How this relates to env.py
+--------------------------
+env.py's write_scene() only has the robot and the floor. Change TitaEnv to load the scene made here:
 
     from minipacman.scene import build_scene
     env = TitaEnv(str(build_scene()))
 
-球的參數（半徑、質量、彈性）在每次發球時由 balls.py 在執行期間修改，所以 XML 裡的值只是初始值。
+Ball properties (radius, mass, restitution) are changed at runtime by balls.py on every throw, so the values in the
+XML are only starting values.
 """
 from __future__ import annotations
 
@@ -30,16 +32,16 @@ from .config import Config, TITA_DIR, default_config
 
 def build_scene(tita_dir: str | Path | None = None, cfg: Config | None = None,
                 filename: str = "mini_pacman_scene.xml") -> Path:
-    """在 <tita_dir>/mujoco/ 寫出場景 XML，回傳檔案路徑。
+    """Write the scene XML into <tita_dir>/mujoco/ and return its path.
 
-    放在 robot.xml 旁邊，是因為 robot.xml 用相對路徑找 mesh。
+    It sits next to robot.xml because robot.xml finds its meshes with relative paths.
     """
     cfg = cfg or default_config()
     tita_dir = Path(tita_dir) if tita_dir is not None else TITA_DIR
     robot_xml = tita_dir / "mujoco" / "robot.xml"
     if not robot_xml.exists():
-        raise FileNotFoundError(f"找不到 {robot_xml}。請先執行 python scripts/download_tita.py，"
-                                f"或設定環境變數 MINIPACMAN_TITA_DIR。")
+        raise FileNotFoundError(f"Cannot find {robot_xml}. Run python scripts/download_tita.py first, "
+                                f"or set the MINIPACMAN_TITA_DIR environment variable.")
     rc, bc = cfg.robot, cfg.balls
     acts = "".join(
         f'    <position name="pos_{j}" joint="{j}" kp="{rc.leg_kp}" kv="{rc.leg_kv}" '
@@ -80,13 +82,13 @@ def build_scene(tita_dir: str | Path | None = None, cfg: Config | None = None,
 
 
 def park_position(cfg: Config, i: int, radius: float) -> np.ndarray:
-    """第 i 顆球收起來時放的位置（地板上，離相機很遠，彼此不相碰）。"""
+    """Where ball i is parked when unused (on the floor, far from the camera, not touching the others)."""
     x, y = cfg.balls.park_xy
     return np.array([x - 1.0 * i, y, radius])
 
 
 def apply_sim_options(m: mujoco.MjModel, cfg: Config | None = None) -> None:
-    """套用 config 裡的模擬設定（和 env.py TitaEnv.__init__ 做的事一樣）。"""
+    """Apply the simulator settings from the config (the same thing env.py's TitaEnv.__init__ does)."""
     cfg = cfg or default_config()
     m.opt.timestep = cfg.sim.timestep
     m.opt.integrator = getattr(mujoco.mjtIntegrator, f"mjINT_{cfg.sim.integrator.upper()}")
@@ -96,7 +98,7 @@ def apply_sim_options(m: mujoco.MjModel, cfg: Config | None = None) -> None:
 
 
 def load_model(tita_dir: str | Path | None = None, cfg: Config | None = None):
-    """產生場景並載入，回傳 (MjModel, MjData)。測試和工具用；正式流程由 env.py 載入。"""
+    """Build the scene and load it, returning (MjModel, MjData). For tests and tools; the real pipeline loads it via env.py."""
     cfg = cfg or default_config()
     m = mujoco.MjModel.from_xml_path(str(build_scene(tita_dir, cfg)))
     apply_sim_options(m, cfg)
@@ -105,18 +107,18 @@ def load_model(tita_dir: str | Path | None = None, cfg: Config | None = None):
 
 @dataclass
 class SceneIds:
-    """場景裡常用的 id。用 scene_ids(m) 建立。"""
+    """Ids we use a lot. Create with scene_ids(m)."""
     base_body: int
     robot_root: int
-    robot_bodies: np.ndarray        # 屬於機器人的所有 body
-    robot_collision_geoms: np.ndarray   # 機器人會碰撞的 geom（contype 或 conaffinity 不為 0）
-    robot_nv: int                   # 機器人的 dof 數（球的 dof 在後面）
+    robot_bodies: np.ndarray        # every body that belongs to the robot
+    robot_collision_geoms: np.ndarray   # robot geoms that collide (contype or conaffinity non-zero)
+    robot_nv: int                   # number of robot dofs (ball dofs come after)
     robot_nq: int
     floor_geom: int
     ball_bodies: np.ndarray
     ball_geoms: np.ndarray
-    ball_qadr: np.ndarray           # 每顆球 freejoint 的 qpos 起點（7 個：xyz + quat）
-    ball_dadr: np.ndarray           # 每顆球 freejoint 的 qvel 起點（6 個：線速度 + 角速度）
+    ball_qadr: np.ndarray           # qpos start of each ball's freejoint (7 values: xyz + quat)
+    ball_dadr: np.ndarray           # qvel start of each ball's freejoint (6 values: linear + angular velocity)
     camera_bodies: np.ndarray
 
 
@@ -134,12 +136,12 @@ def scene_ids(m: mujoco.MjModel, cfg: Config | None = None) -> SceneIds:
     ball_geoms = np.array([name(G, f"ball_{i}") for i in range(n_balls)])
     ball_joints = [name(J, f"ball_{i}_free") for i in range(n_balls)]
     if min(ball_bodies.min(), ball_geoms.min(), min(ball_joints)) < 0:
-        raise ValueError("場景裡找不到球，請用 scene.build_scene() 產生的場景。")
+        raise ValueError("No balls in this scene; use the scene made by scene.build_scene().")
     ball_qadr = np.array([m.jnt_qposadr[j] for j in ball_joints])
     ball_dadr = np.array([m.jnt_dofadr[j] for j in ball_joints])
     robot_nv, robot_nq = int(ball_dadr.min()), int(ball_qadr.min())
     robot_dofs = np.where(np.isin(m.dof_bodyid, robot_bodies))[0]
-    assert robot_dofs.max() < robot_nv, "機器人的 dof 必須排在球之前"
+    assert robot_dofs.max() < robot_nv, "the robot's dofs must come before the balls'"
     return SceneIds(
         base_body=base, robot_root=root, robot_bodies=robot_bodies, robot_collision_geoms=robot_geoms,
         robot_nv=robot_nv, robot_nq=robot_nq, floor_geom=name(G, "floor"),

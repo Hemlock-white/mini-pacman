@@ -1,4 +1,4 @@
-"""球：彈跳物理、改大小、發球軌跡、命中判定。"""
+"""Balls: bounce physics, resizing, throw trajectories, hit detection."""
 import mujoco
 import numpy as np
 import pytest
@@ -15,8 +15,8 @@ def test_restitution_table_is_physical(cfg):
     b, e = balls.restitution_table(0.002, cfg.balls.contact_stiffness,
                                    int(mujoco.mjtIntegrator.mjINT_IMPLICITFAST), cfg.balls.calibration_impact_speed)
     assert e.min() >= 0.0 and e.max() <= 1.0
-    assert np.all(np.diff(e) <= 1e-3), "阻尼越大，彈性應該越小"
-    assert e.max() > 0.9 and e.min() < 0.3, "要涵蓋 restitution_range"
+    assert np.all(np.diff(e) <= 1e-3), "more damping should mean less bounce"
+    assert e.max() > 0.9 and e.min() < 0.3, "the table must cover restitution_range"
 
 
 def _drop_and_measure(m, d, ids, i, height):
@@ -33,7 +33,7 @@ def _drop_and_measure(m, d, ids, i, height):
         elif v_in is not None and not touching:
             return d.qvel[da + 2] / v_in
         prev = d.qvel[da + 2]
-    raise AssertionError("球沒有彈起來")
+    raise AssertionError("the ball never bounced")
 
 
 @pytest.mark.parametrize("e_target", [0.5, 0.65, 0.8])
@@ -43,7 +43,7 @@ def test_bounce_restitution_in_scene(sim, cfg, e_target, mass):
     ids = scene.scene_ids(m, cfg)
     set_ball_properties(m, ids, 0, 0.1, mass, e_target, cfg.balls)
     e = _drop_and_measure(m, d, ids, 0, 0.1 + 4.0 ** 2 / (2 * G))
-    assert abs(e - e_target) < 0.06, f"目標 e={e_target}，量到 {e:.3f}"
+    assert abs(e - e_target) < 0.06, f"target e={e_target}, measured {e:.3f}"
 
 
 @pytest.mark.parametrize("radius", [0.075, 0.125])
@@ -55,17 +55,16 @@ def test_resize_changes_contact(sim, cfg, radius):
     d.qpos[qa:qa + 7] = [6.0, 6.0, radius + 0.05, 1, 0, 0, 0]
     d.qvel[da:da + 6] = 0
     step(m, d, 1000)
-    assert abs(d.qpos[qa + 2] - radius) < 0.003, "靜止時球心高度應該等於半徑"
+    assert abs(d.qpos[qa + 2] - radius) < 0.003, "at rest the ball centre should be one radius above the floor"
 
 
 def _throw_and_compare(m, d, cfg, mode, seed):
     ids = scene.scene_ids(m, cfg)
     launcher = BallLauncher(m, d, cfg, ids)
     rng = np.random.default_rng(seed)
-    # 假想的機器人放在 (20, 20)，讓球的路徑完全避開真的機器人
+    # put an imaginary robot at (20, 20) so the ball path stays well away from the real robot
     plan = plan_throw(rng, cfg.balls, np.array([20.0, 20.0]), 0.3, np.zeros(2), 0.1, 0.136, 0.7, mode=mode)
     launcher.throw_now(plan, 0)
-    dt = m.opt.timestep
     checks = np.linspace(0.1, plan.flight_time, 6)
     pred, _ = predict_ball(plan.p0, plan.v0, plan.radius, plan.restitution, checks)
     errs, touched = [], False
@@ -83,15 +82,15 @@ def _throw_and_compare(m, d, cfg, mode, seed):
 @pytest.mark.parametrize("seed", [0, 1, 2])
 def test_direct_throw_follows_plan(sim, cfg, seed):
     plan, errs, end_err, touched = _throw_and_compare(*sim, cfg, "direct", seed)
-    assert not touched, "direct 軌跡途中不應碰地"
+    assert not touched, "a direct throw should not touch the floor on the way"
     assert errs.max() < 0.03 and end_err < 0.03
 
 
 @pytest.mark.parametrize("seed", [0, 1, 2])
 def test_bounce_throw_follows_plan(sim, cfg, seed):
     plan, errs, end_err, touched = _throw_and_compare(*sim, cfg, "bounce", seed)
-    assert plan.mode == "bounce" and touched, "bounce 軌跡應該先落地"
-    assert end_err < 0.12, f"抵達位置誤差 {end_err:.3f} m"
+    assert plan.mode == "bounce" and touched, "a bounce throw should hit the floor first"
+    assert end_err < 0.12, f"arrival position error {end_err:.3f} m"
     assert errs.max() < 0.12
 
 
@@ -103,7 +102,7 @@ def test_predict_ball_multiple_bounces(sim, cfg, e):
     qa, da = int(ids.ball_qadr[2]), int(ids.ball_dadr[2])
     p0, v0 = np.array([7.0, 7.0, 1.2]), np.array([1.0, 0.0, 0.0])
     d.qpos[qa:qa + 7] = [*p0, 1, 0, 0, 0]
-    d.qvel[da:da + 6] = [*v0, 0, v0[0] / 0.1, 0]       # 滾動不滑的轉速
+    d.qvel[da:da + 6] = [*v0, 0, v0[0] / 0.1, 0]       # rolling-without-slipping spin
     times = np.arange(1, 101) * 0.02
     pred, _ = predict_ball(p0, v0, 0.1, e, times)
     sim_pos = []
@@ -111,9 +110,10 @@ def test_predict_ball_multiple_bounces(sim, cfg, e):
         step(m, d, 10)
         sim_pos.append(d.qpos[qa:qa + 3].copy())
     err = np.linalg.norm(np.array(sim_pos) - pred, axis=1)
-    assert err[:50].max() < 0.08, f"前 1 秒最大誤差 {err[:50].max():.3f} m"
-    # 彈越多次，低速撞擊時 e 的些微差異會累積；CBF 只預測 1.5 s，追蹤器也會一直修正
-    assert err.max() < 0.15, f"兩秒內（彈 3 次以上）最大誤差 {err.max():.3f} m"
+    assert err[:50].max() < 0.08, f"max error over the first second {err[:50].max():.3f} m"
+    # the more bounces, the more the small differences in e at low impact speed add up;
+    # the CBF only predicts 1.5 s ahead and the tracker keeps correcting
+    assert err.max() < 0.15, f"max error within 2 s (3+ bounces) {err.max():.3f} m"
 
 
 def test_launcher_schedule(sim, cfg):
@@ -128,7 +128,7 @@ def test_launcher_schedule(sim, cfg):
         assert lo <= n <= hi
         times = [r.throw_time for r in launcher.records]
         assert all(np.diff(times) > 0) and times[-1] < cfg.sim.episode_seconds - 1.0
-    assert counts == set(range(lo, hi + 1)), "30 個 seed 應該出現 1–5 顆的每一種"
+    assert counts == set(range(lo, hi + 1)), "30 seeds should cover every count from 1 to 5"
 
 
 def _aimed_plan(base_pos, offset_y, T=0.8, radius=0.1):

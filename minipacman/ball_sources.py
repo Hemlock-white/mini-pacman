@@ -1,22 +1,22 @@
-"""球的資訊來源：CBF 過濾器（以及想用的話，policy）從這裡拿「球在哪、速度多少」。
+"""Ball information sources: where the CBF filter (and the policy, if you want) gets "where is the ball, how fast".
 
-實驗 3 就是比較這三種來源：
+Exp 3 compares these three sources:
 
 =================  ====================================================================
-``truth``          模擬器的真實值（PAC-MAN 說的「只能在模擬裡用的安全上限」）
-``noisy_truth``    真實值 + 位置/速度雜訊 + 延遲 + 偶爾看不到（NoisyTruthConfig）
-``depth_tracker``  深度相機 → BallDetector → BallTracker（真的從感測器估出來）
+``truth``          simulator truth (what PAC-MAN calls the "simulation-only safety ceiling")
+``noisy_truth``    truth + position/velocity noise + latency + occasionally missing (NoisyTruthConfig)
+``depth_tracker``  depth camera → BallDetector → BallTracker (actually estimated from the sensor)
 =================  ====================================================================
 
-三種來源介面一樣：
+All three have the same interface:
 
     source = make_ball_source("depth_tracker", m, cfg, launcher, camera)
-    source.reset(rng)                         # 每個 episode 開始
-    balls = source.update(d, rng, frame)      # 每個 policy 步；frame 可傳入已經算好的深度圖，避免重算
+    source.reset(rng)                         # at the start of each episode
+    balls = source.update(d, rng, frame)      # every policy step; pass an already-rendered frame to avoid recomputing
     for b in balls: b.position, b.velocity, b.radius, b.stamp ...
 
-``BallEstimate.stamp`` 是這個估計對應的時間。有延遲時 stamp 會比現在早，
-使用者（CBF）應該用 ``balls.predict_ball`` 把它往前推到現在：
+``BallEstimate.stamp`` is the time the estimate refers to. With latency, stamp is earlier than now, and the user
+(the CBF) should push it forward to now with ``balls.predict_ball``:
 
     p_now, v_now = predict_ball(b.position, b.velocity, b.radius, b.restitution, d.time - b.stamp)
 """
@@ -71,12 +71,12 @@ class NoisyTruthBallSource:
     def update(self, d: mujoco.MjData, rng: np.random.Generator | None = None,
                frame: DepthFrame | None = None) -> list[BallEstimate]:
         if rng is None:
-            raise ValueError("noisy_truth 需要 rng")
+            raise ValueError("noisy_truth needs an rng")
         self.buf.append(self.truth.update(d))
         if len(self.buf) <= self.delay:
             return []
         out = []
-        for b in self.buf[0]:                       # 最舊的一筆 = delay 步之前
+        for b in self.buf[0]:                       # the oldest entry = delay steps ago
             if rng.random() < self.nc.dropout:
                 continue
             out.append(BallEstimate(
@@ -104,9 +104,10 @@ class DepthTrackerBallSource:
 
     def update(self, d: mujoco.MjData, rng: np.random.Generator | None = None,
                frame: DepthFrame | None = None) -> list[BallEstimate]:
-        """frame：這一步已經算好的「乾淨」深度圖（例如 policy 觀測用的）；沒給就自己算。雜訊在這裡加。"""
+        """frame: a clean depth image already rendered this step (e.g. the one for the policy); rendered here if not
+        given. Noise is added here."""
         if rng is None:
-            raise ValueError("depth_tracker 需要 rng（深度雜訊）")
+            raise ValueError("depth_tracker needs an rng (depth noise)")
         frame = frame if frame is not None else self.camera.render(d)
         noisy = self.camera.add_noise(frame, rng)
         self.last_frame = noisy
@@ -116,7 +117,7 @@ class DepthTrackerBallSource:
 
 def make_ball_source(kind: str, m: mujoco.MjModel, cfg: Config | None, launcher: BallLauncher,
                      camera: DepthCamera | None = None):
-    """依名稱建立球資訊來源。kind ∈ SOURCES。"""
+    """Create a ball information source by name. kind ∈ SOURCES."""
     cfg = cfg or default_config()
     if kind == "truth":
         return TruthBallSource(launcher)
@@ -124,4 +125,4 @@ def make_ball_source(kind: str, m: mujoco.MjModel, cfg: Config | None, launcher:
         return NoisyTruthBallSource(launcher, cfg)
     if kind == "depth_tracker":
         return DepthTrackerBallSource(m, camera or DepthCamera(m, cfg, launcher.ids), cfg)
-    raise ValueError(f"未知的球資訊來源 {kind!r}，可用：{SOURCES}")
+    raise ValueError(f"unknown ball information source {kind!r}, choose from {SOURCES}")

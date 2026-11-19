@@ -1,34 +1,35 @@
-"""IMU 和關節 encoder：讀 MuJoCo 感測器並加上雜訊。【你們實作】
+"""IMU and joint encoders: read the MuJoCo sensors and add noise. [YOURS]
 
-TITA 的 robot.xml 本來就有這些感測器（不用改 XML）：
+TITA's robot.xml already has these sensors (no XML changes needed):
 
 =================  ==========================================  ====================
-名稱                內容                                         sensordata 維度
+name               content                                     size in sensordata
 =================  ==========================================  ====================
-trunk_gyro         角速度，IMU 座標 (rad/s)                       3
-trunk_accel        加速度計（比力 = 加速度 - 重力），IMU 座標        3
-trunk_quat         姿態四元數 (w, x, y, z)                        4
-*_leg_N_pos        8 個關節角度 (rad)                             各 1
-*_leg_N_vel        8 個關節角速度 (rad/s)                         各 1
+trunk_gyro         angular velocity, IMU frame (rad/s)         3
+trunk_accel        accelerometer (specific force = accel - g)  3
+trunk_quat         orientation quaternion (w, x, y, z)         4
+*_leg_N_pos        8 joint angles (rad)                        1 each
+*_leg_N_vel        8 joint velocities (rad/s)                  1 each
 =================  ==========================================  ====================
 
-怎麼讀某個感測器
-----------------
+How to read a sensor
+--------------------
     sid = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_SENSOR, "trunk_gyro")
     adr, dim = m.sensor_adr[sid], m.sensor_dim[sid]
     value = d.sensordata[adr:adr + dim]
-（在 __init__ 先把每個感測器的 adr、dim 查好存起來，每步就只做切片。）
+(Look up every sensor's adr and dim once in __init__, then each step is just a slice.)
 
-雜訊模型（參數在 config.ImuConfig / EncoderConfig）
-----------------------------------------------------
-* 陀螺儀：真實值 + 每個 episode 固定的偏差 (bias，reset 時抽) + 每步的白雜訊。
-* 加速度計：同上。
-* 姿態：把真實四元數乘上一個小的隨機旋轉（角度 ~ N(0, quat_noise_deg)），代表 IMU 內建融合的誤差。
-* encoder 角度：量化到 2π / counts_per_rev 的整數倍。
-* encoder 角速度：真實值 + 白雜訊。
+Noise model (parameters in config.ImuConfig / EncoderConfig)
+------------------------------------------------------------
+* Gyro: true value + a bias fixed per episode (drawn in reset) + white noise every step.
+* Accelerometer: same.
+* Orientation: multiply the true quaternion by a small random rotation (angle ~ N(0, quat_noise_deg)), standing in for
+  the error of the IMU's built-in fusion.
+* Encoder angle: quantised to integer multiples of 2π / counts_per_rev.
+* Encoder velocity: true value + white noise.
 
-注意 robot.xml 的 jointactuatorfrc 有 noise="0.01" 屬性，但 MuJoCo **不會**自動加雜訊
-（已驗證：noise 只存在 m.sensor_noise 給使用者參考，sensordata 是乾淨的），所以雜訊要在這裡自己加。
+Note that robot.xml's jointactuatorfrc sensors have noise="0.01", but MuJoCo does **not** add noise by itself
+(checked: noise only lives in m.sensor_noise for the user's reference; sensordata is clean), so add it here.
 """
 from __future__ import annotations
 
@@ -42,24 +43,24 @@ from .config import Config
 
 @dataclass
 class ImuReading:
-    gyro: np.ndarray       # (3,) rad/s，IMU 座標
-    accel: np.ndarray      # (3,) m/s^2，IMU 座標（靜止時約 (0, 0, +9.81)）
+    gyro: np.ndarray       # (3,) rad/s, IMU frame
+    accel: np.ndarray      # (3,) m/s^2, IMU frame (about (0, 0, +9.81) at rest)
     quat: np.ndarray       # (4,) w, x, y, z
 
 
 @dataclass
 class EncoderReading:
-    pos: np.ndarray        # (8,) 順序：cfg.robot.legs + cfg.robot.wheels
+    pos: np.ndarray        # (8,) order: cfg.robot.legs + cfg.robot.wheels
     vel: np.ndarray        # (8,)
 
 
 class Imu:
     def __init__(self, m: mujoco.MjModel, cfg: Config):
-        """查好 trunk_gyro、trunk_accel、trunk_quat 在 sensordata 的位置。"""
-        raise NotImplementedError("TODO：Imu.__init__")
+        """Look up where trunk_gyro, trunk_accel and trunk_quat are in sensordata."""
+        raise NotImplementedError("TODO: Imu.__init__")
 
     def reset(self, rng: np.random.Generator) -> None:
-        """每個 episode 開始：抽陀螺儀和加速度計的偏差。"""
+        """Start of an episode: draw the gyro and accelerometer biases."""
         raise NotImplementedError
 
     def read(self, d: mujoco.MjData, rng: np.random.Generator) -> ImuReading:
@@ -68,11 +69,11 @@ class Imu:
 
 class Encoders:
     def __init__(self, m: mujoco.MjModel, cfg: Config):
-        """查好 8 個關節的 *_pos、*_vel 感測器位置（順序：legs + wheels）。
+        """Look up the *_pos and *_vel sensors of the 8 joints (order: legs + wheels).
 
-        感測器名稱 = 關節名稱去掉 "joint_" 再加 "_pos" / "_vel"，例如 joint_left_leg_1 → left_leg_1_pos。
+        Sensor name = joint name without "joint_", plus "_pos" / "_vel", e.g. joint_left_leg_1 → left_leg_1_pos.
         """
-        raise NotImplementedError("TODO：Encoders.__init__")
+        raise NotImplementedError("TODO: Encoders.__init__")
 
     def reset(self, rng: np.random.Generator) -> None:
         raise NotImplementedError
