@@ -27,7 +27,7 @@ PPO decides how fast to go, whether to turn and whether to crouch. The CBF chang
 | | What we want to know | What we compare | Groups |
 |---|---|---|---|
 | Exp 1 | Should safety be taught during training, or just blocked at runtime? | 3 rewards (only reach the goal / minus points when hit / plus a CBF term) × filter off, on | 6 |
-| Exp 2 | TITA needs 0.36 s to speed up. Does it break the filter if the filter ignores that lag? | naive, lag-aware × replan every step, decide once, plus one group with no filter | 5 |
+| Exp 2 | TITA needs 0.36 s to speed up. Does it break the filter if the filter ignores that lag? | naive filter vs lag-aware filter | 2 |
 | Exp 3 | Is the filter still useful when the ball position isn't accurate? | ball info from the true value / with noise and lag / estimated by the depth camera, plus one group with no filter | 4 |
 
 Every group runs the same 100 seeds. We look at: did it reach the goal, how many balls hit, how close the balls got, and how much the filter stepped in.
@@ -44,32 +44,35 @@ The model doesn't come with a license, so it's not in this repo. Run `python scr
 
 ## What each file does
 
+`(done)` = finished. Everything without it is still to do.
+
 ```
 mini-pacman/
-├── train_mini_pacman_policy.py     train PPO, --reward picks which reward
-├── run_mini_pacman_experiments.py  run experiments, --part picks which one; set the policy files in POLICY_FILES at the top
+├── train_mini_pacman_policy.py     train PPO, --reward picks which reward (done)
+├── run_mini_pacman_experiments.py  run experiments, --part picks which one, policy files go in POLICY_FILES at the top
+│                                   (check, exp3, summary done; exp1, exp2 not yet)
 ├── minipacman/
-│   ├── config.py           every parameter lives here, change numbers here
-│   ├── scene.py            builds the MuJoCo scene (TITA + floor + 5 balls)
+│   ├── config.py           every parameter lives here, change numbers here (done)
+│   ├── scene.py            builds the MuJoCo scene (TITA + floor + 5 balls) (done)
 │   ├── env.py              TITA itself: load the model, set poses, read the state
 │   ├── lqr.py              LQR balance, turns commands into motor commands
 │   ├── sensors.py          IMU, encoders (with noise)
 │   ├── state_estimator.py  guesses the robot state from IMU + encoders
-│   ├── balls.py            throwing, bouncing, predicting where a ball goes, did it hit
-│   ├── depth_camera.py     depth camera
-│   ├── ball_tracker.py     finds and tracks balls in the depth image
-│   ├── ball_sources.py     where the ball info comes from (true value / noisy / depth camera)
+│   ├── balls.py            throwing, bouncing, predicting where a ball goes, did it hit (done)
+│   ├── depth_camera.py     depth camera (done)
+│   ├── ball_tracker.py     finds and tracks balls in the depth image (done)
+│   ├── ball_sources.py     where the ball info comes from (true value / noisy / depth camera) (done)
 │   ├── cbf.py              CBF reward term and the safety filter
 │   ├── dodge_env.py        the RL environment, wires everything above together
 │   ├── vec_env.py          runs many environments at once, plugs into rsl_rl
-│   ├── train_ppo.py        PPO settings
+│   ├── train_ppo.py        PPO settings (settings done, train() not yet)
 │   ├── evaluate.py         runs one experiment group on fixed seeds
-│   ├── report.py           numbers and plots
-│   └── runtime.py          logs which GPU we used and whether it's ROCm
+│   ├── report.py           numbers and plots (done, except the exp1 / exp2 plots)
+│   └── runtime.py          logs which GPU we used and whether it's ROCm (done)
 ├── scripts/
 │   └── download_tita.py    downloads the TITA model
 ├── tests/                  tests; when you finish a module, remove the skip line in its test file
-├── docs/                   pictures for this README
+├── docs/                   pictures for this README (done)
 ├── third_party/            the downloaded TITA goes here (not in git)
 └── outputs/                training and experiment results (not in git)
 ```
@@ -101,7 +104,7 @@ Every time you start working:
 ```bash
 git checkout main
 git pull
-git checkout -b misha/lqr          # name/what you're working on
+git checkout -b <branch_name>
 ```
 
 After finishing a chunk:
@@ -109,8 +112,8 @@ After finishing a chunk:
 ```bash
 git status                         # which files changed
 git diff                           # what changed
-git add minipacman/lqr.py tests/test_lqr.py
-git commit -m "lqr: add turning"
+git add <file_name>
+git commit -m "<what_you_changed>"
 ```
 
 Before you push:
@@ -118,7 +121,7 @@ Before you push:
 ```bash
 git pull origin main               # bring in what others pushed
 pytest
-git push -u origin misha/lqr
+git push -u origin <branch_name>
 gh pr create --fill                # open a PR, or just click it on the GitHub website
 ```
 
@@ -127,7 +130,7 @@ When you get a CONFLICT:
 ```bash
 # 1. open the file it names and find the part from <<<<<<< to >>>>>>>
 # 2. keep what you want, delete the <<<<<<< ======= >>>>>>> markers
-git add that-file
+git add <file_name>
 git commit
 # can't sort it out and want to give up on this merge for now:
 git merge --abort
@@ -138,5 +141,5 @@ After your PR is merged:
 ```bash
 git checkout main
 git pull
-git branch -d misha/lqr
+git branch -d <branch_name>
 ```

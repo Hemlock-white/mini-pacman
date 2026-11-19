@@ -36,12 +36,13 @@ distance.
        {-max, 0, +max}), first clipped to the safe envelope with lqr.clip_to_envelope.
     5. Among those with h_pred >= filter_margin, pick the one "closest to u_nom" (you can weight the distance, e.g.
        multiply sdot by 0.13 to turn it into m/s); if none is safe, pick the one with the largest h_pred.
-    6. replan="every_step": recompute every policy step; replan="commit": decide once when a threat is detected and
-       keep that command until the threat is gone (the Exp 2 variable: a "reflex").
+    6. replan="every_step" (what all experiments use): recompute every policy step. replan="commit" is optional:
+       decide once when a threat is detected and keep that command until the threat is gone (a "reflex").
 
-For reference: our side-throw reference solution found that when replanning every 10 ms, naive and lag_aware give
-the same result; when deciding only once, naive got hit 65% of the time vs 30% for lag_aware. Whether the same holds
-for front throws is exactly what Exp 2 answers.
+Exp 2 compares mode="naive" vs mode="lag_aware". For reference: in our side-throw reference solution, when
+replanning every 10 ms, naive and lag_aware gave the same result (frequent replanning corrects the lag error); only
+when deciding once did naive get hit 65% of the time vs 30% for lag_aware. So "no difference" is a possible, and
+honest, outcome of Exp 2 with front throws.
 """
 from __future__ import annotations
 

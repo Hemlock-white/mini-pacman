@@ -333,10 +333,11 @@ class ExperimentConfig:
     # Exp 1: each policy with the filter off / on; which filter version, and where its ball info comes from
     exp1_filter_mode: str = "lag_aware"
     exp1_filter_source: str = "truth"          # truth = best case for the filter; the effect of bad sensing is Exp 3
-    # Exp 2: naive vs lag-aware × replan every step vs decide once; scripted high-level command (no PPO needed)
+    # Exp 2: naive vs lag-aware filter (2 groups); scripted high-level command (no PPO needed), replanning every step.
+    # (SafetyFilter also supports replan="commit"; add it here if you ever want the extra comparison.)
     exp2_policy: str = "scripted"
     exp2_filters: tuple = ("naive", "lag_aware")
-    exp2_replan: tuple = ("every_step", "commit")
+    exp2_replan: tuple = ("every_step",)
     # Exp 3: ball information source
     exp3_sources: tuple = ("truth", "noisy_truth", "depth_tracker")
     exp3_reward_variant: str = "task_cbf"      # which policy Exp 3 uses (matches POLICY_FILES in the run script)

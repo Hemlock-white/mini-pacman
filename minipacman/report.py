@@ -187,7 +187,7 @@ def plot_exp1(rows: list[dict], out_dir: str | Path) -> None:
 def plot_exp2(rows: list[dict], out_dir: str | Path) -> None:
     """Plots for Exp 2.
 
-    TODO (yours): the 2×2 collision rates (naive / lag-aware × replan every step / decide once), and the collision
-    rate grouped by ball arrival height (collision_rate_low / mid / high).
+    TODO (yours): collision rate of the 2 groups (naive / lag-aware) with 95% confidence intervals, and the collision
+    rate grouped by ball arrival height (collision_rate_low / mid / high) for both groups side by side.
     """
     raise NotImplementedError("TODO: implement plot_exp2 (see docstring)")

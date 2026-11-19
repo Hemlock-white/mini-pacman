@@ -13,7 +13,7 @@ Usage:
 Experiments
 -----------
     exp1  taught vs enforced: policies from 3 rewards × filter off / on = 6 groups              [YOURS, see part_exp3]
-    exp2  naive vs lag-aware CBF: scripted command × (naive / lag_aware) × (every step / decide once) = 4 groups   [YOURS]
+    exp2  naive vs lag-aware CBF: scripted command × (naive / lag_aware) = 2 groups              [YOURS]
     exp3  ball information source: same policy + filter, ball info from truth / noisy / depth camera estimate,
           plus a filter-off reference group                                                     [DONE]
     summary  read all results, print tables, make plots
@@ -155,12 +155,12 @@ def part_exp1(cfg: Config, args, out_root: Path) -> list[dict]:
 
 
 def part_exp2(cfg: Config, args, out_root: Path) -> list[dict]:
-    """Exp 2: naive vs lag-aware filter × replan every step vs decide once. [YOURS]
+    """Exp 2: naive vs lag-aware filter. [YOURS]
 
     The high-level command is scripted (Condition.policy = "scripted", reward_variant = "scripted"), so the result
     only reflects the filter, and it can run before PPO is trained.
-    Conditions: for fm in cfg.exp.exp2_filters: for rp in cfg.exp.exp2_replan → 4 groups, plus one filter-off
-    reference (filter_mode=None), 5 in total. Ball info from "truth".
+    Conditions: for fm in cfg.exp.exp2_filters: for rp in cfg.exp.exp2_replan → 2 groups
+    (exp2_replan is just ("every_step",)), e.g. name=f"exp2_{fm}". Ball info from "truth".
     Otherwise the same as part_exp1; plot with report.plot_exp2.
     """
     raise NotImplementedError("TODO: part_exp2 (see docstring)")
