@@ -1,0 +1,5 @@
+third_party/     # 下載的 TITA 模型：沒有授權，不能進公開 repo
+__pycache__/     # Python 自動產生的快取
+*.pyc
+.pytest_cache/
+outputs/         # 之後模擬產生的影片和 log
