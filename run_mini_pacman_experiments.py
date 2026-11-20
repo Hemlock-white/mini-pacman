@@ -163,7 +163,25 @@ def part_exp2(cfg: Config, args, out_root: Path) -> list[dict]:
     (exp2_replan is just ("every_step",)), e.g. name=f"exp2_{fm}". Ball info from "truth".
     Otherwise the same as part_exp1; plot with report.plot_exp2.
     """
-    raise NotImplementedError("TODO: part_exp2 (see docstring)")
+    conditions = []
+    include_replan = len(cfg.exp.exp2_replan) > 1
+    for filter_mode in cfg.exp.exp2_filters:
+        for replan in cfg.exp.exp2_replan:
+            suffix = f"_{replan}" if include_replan else ""
+            conditions.append(Condition(
+                name=f"exp2_{filter_mode}{suffix}",
+                policy=cfg.exp.exp2_policy,
+                reward_variant="scripted",
+                filter_mode=filter_mode,
+                replan=replan,
+                ball_source="truth",
+            ))
+    exp_dir = out_root / "exp2"
+    rows = run_conditions(conditions, exp_dir, cfg, args)
+    report.print_table(rows)
+    report.plot_exp2(rows, exp_dir)
+    print(f"  plots: {exp_dir}/exp2_*.png")
+    return rows
 
 
 def part_exp3(cfg: Config, args, out_root: Path) -> list[dict]:

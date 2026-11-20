@@ -63,3 +63,29 @@ def test_part_exp3_flow(tmp_path, monkeypatch, cfg):
     assert [c.ball_source for c in seen[1:]] == list(cfg.exp.exp3_sources)
     assert len(rows) == 4 and (tmp_path / "exp3" / "summary.csv").exists()
     assert (tmp_path / "exp3" / "exp3_collision_rate.png").exists()
+
+
+def test_part_exp2_flow(tmp_path, monkeypatch, cfg):
+    """Exp 2 builds the naive/lag-aware scripted conditions and writes both plots."""
+    run = importlib.import_module("run_mini_pacman_experiments")
+    import minipacman.evaluate as ev
+    seen = []
+
+    def fake_run_condition(condition, seeds, cfg_, out_path, device, resume=True):
+        seen.append(condition)
+        rng = np.random.default_rng(len(seen) + 10)
+        probability = 0.4 if condition.filter_mode == "naive" else 0.2
+        episodes = [_fake_episode(rng, probability, seed, condition.name) for seed in seeds]
+        report.save_jsonl(episodes, out_path)
+        return episodes
+
+    monkeypatch.setattr(ev, "run_condition", fake_run_condition)
+    args = argparse.Namespace(seeds=None, quick=True, force=False, device="cpu")
+    rows = run.part_exp2(cfg, args, tmp_path)
+    assert [condition.name for condition in seen] == ["exp2_naive", "exp2_lag_aware"]
+    assert [condition.filter_mode for condition in seen] == ["naive", "lag_aware"]
+    assert all(condition.policy == "scripted" for condition in seen)
+    assert len(rows) == 2
+    assert (tmp_path / "exp2" / "summary.csv").exists()
+    assert (tmp_path / "exp2" / "exp2_collision_rate.png").exists()
+    assert (tmp_path / "exp2" / "exp2_collision_by_height.png").exists()

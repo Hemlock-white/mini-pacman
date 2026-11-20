@@ -51,10 +51,26 @@ class ScriptedPolicy:
     """
 
     def __init__(self, cfg: Config):
-        raise NotImplementedError("TODO: ScriptedPolicy")
+        self.cfg = cfg
+        command = cfg.command
+        self.drive_action = np.array([
+            2 * (0.5 - command.v_min) / (command.v_max_stand - command.v_min) - 1,
+            0.0,
+            -1.0,
+        ])
+        self.stop_action = np.array([
+            2 * (0.0 - command.v_min) / (command.v_max_stand - command.v_min) - 1,
+            0.0,
+            -1.0,
+        ])
 
     def act(self, obs: dict, env) -> np.ndarray:
-        raise NotImplementedError
+        from .dodge_env import obs_layout
+
+        goal_slice = obs_layout(self.cfg)["actor"]["goal"]
+        goal = np.asarray(obs["actor"][goal_slice])
+        return (self.stop_action if np.linalg.norm(goal) <= self.cfg.task.goal_radius
+                else self.drive_action).copy()
 
 
 def load_policy(path: str | Path, cfg: Config, device: str):
@@ -82,7 +98,28 @@ def run_episode(condition: Condition, seed: int, cfg: Config, policy, device: st
     "condition", "seed" and "device".
     (If creating the env is slow, let run_condition reuse one env and just call reset(seed) for each seed.)
     """
-    raise NotImplementedError("TODO: run_episode")
+    from .dodge_env import DodgeEnv
+
+    reward_variant = "task" if condition.reward_variant == "scripted" else condition.reward_variant
+    env = DodgeEnv(
+        cfg, reward_variant, condition.filter_mode, condition.replan,
+        condition.ball_source, augment_depth=False, seed=seed,
+    )
+    observation = env.reset(seed)
+    while True:
+        if hasattr(policy, "act"):
+            action = policy.act(observation, env)
+        else:
+            action = policy(observation["actor"])
+        observation, _, terminated, truncated, _ = env.step(np.asarray(action, dtype=float))
+        if terminated or truncated:
+            break
+    return {
+        "condition": condition.name,
+        "seed": int(seed),
+        **env.episode_summary(),
+        "device": str(device),
+    }
 
 
 def run_condition(condition: Condition, seeds: list[int], cfg: Config, out_path: Path, device: str,
@@ -93,4 +130,19 @@ def run_condition(condition: Condition, seeds: list[int], cfg: Config, out_path:
     resume=False: delete out_path first and rerun everything.
     Different seeds can run in parallel with multiprocessing (each seed is independent; order doesn't matter).
     """
-    raise NotImplementedError("TODO: run_condition")
+    from . import report
+
+    out_path = Path(out_path)
+    if not resume:
+        out_path.unlink(missing_ok=True)
+    existing = report.load_jsonl(out_path) if resume else []
+    by_seed = {int(episode["seed"]): episode for episode in existing}
+    policy = (ScriptedPolicy(cfg) if condition.policy == "scripted"
+              else load_policy(condition.policy, cfg, device))
+    for seed in seeds:
+        if int(seed) in by_seed:
+            continue
+        episode = run_episode(condition, int(seed), cfg, policy, device)
+        report.append_jsonl(episode, out_path)
+        by_seed[int(seed)] = episode
+    return [by_seed[int(seed)] for seed in seeds if int(seed) in by_seed]

@@ -190,4 +190,33 @@ def plot_exp2(rows: list[dict], out_dir: str | Path) -> None:
     TODO (yours): collision rate of the 2 groups (naive / lag-aware) with 95% confidence intervals, and the collision
     rate grouped by ball arrival height (collision_rate_low / mid / high) for both groups side by side.
     """
-    raise NotImplementedError("TODO: implement plot_exp2 (see docstring)")
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    out_dir = Path(out_dir)
+    bar_chart(
+        rows, "collision_rate", out_dir / "exp2_collision_rate.png",
+        "Exp 2: speed-lag model in the safety filter",
+        "collision rate (hit balls / thrown)",
+    )
+
+    buckets = ("low", "mid", "high")
+    x = np.arange(len(buckets), dtype=float)
+    width = 0.8 / max(len(rows), 1)
+    fig, axis = plt.subplots(figsize=(6.0, 3.8))
+    for index, row in enumerate(rows):
+        values = [row.get(f"collision_rate_{bucket}", np.nan) for bucket in buckets]
+        offset = (index - (len(rows) - 1) / 2) * width
+        label = str(row.get("filter_mode") or row.get("condition", index))
+        axis.bar(x + offset, values, width=width, label=label)
+    axis.set_xticks(x, buckets)
+    axis.set_ylabel("collision rate")
+    axis.set_xlabel("ball arrival height")
+    axis.set_title("Exp 2: collisions by arrival height")
+    axis.grid(axis="y", alpha=0.3)
+    axis.legend()
+    fig.tight_layout()
+    out_dir.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out_dir / "exp2_collision_by_height.png", dpi=150)
+    plt.close(fig)
