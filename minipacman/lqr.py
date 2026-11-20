@@ -263,9 +263,17 @@ class LQRBalancer:
         self._require_designed()
         position = np.asarray(qpos, dtype=float)
         velocity = np.asarray(qvel, dtype=float)
+        if position.shape == (self.env.robot_nq,):
+            full_position = self.d.qpos.copy()
+            full_position[:self.env.robot_nq] = position
+            position = full_position
+        if velocity.shape == (self.env.robot_nv,):
+            full_velocity = self.d.qvel.copy()
+            full_velocity[:self.env.robot_nv] = velocity
+            velocity = full_velocity
         if position.shape != (self.m.nq,) or velocity.shape != (self.m.nv,):
             raise ValueError(
-                f"qpos/qvel must have shapes ({self.m.nq},)/({self.m.nv},), "
+                "qpos/qvel must contain either the robot state or the full model state; "
                 f"got {position.shape}/{velocity.shape}"
             )
 

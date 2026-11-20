@@ -57,14 +57,46 @@ class EncoderReading:
 class Imu:
     def __init__(self, m: mujoco.MjModel, cfg: Config):
         """Look up where trunk_gyro, trunk_accel and trunk_quat are in sensordata."""
-        raise NotImplementedError("TODO: Imu.__init__")
+        self.cfg = cfg
+        self.ic = cfg.imu
+        self._gyro = self._sensor_slice(m, self.ic.gyro_sensor, 3)
+        self._accel = self._sensor_slice(m, self.ic.accel_sensor, 3)
+        self._quat = self._sensor_slice(m, self.ic.quat_sensor, 4)
+        self.gyro_bias = np.zeros(3)
+        self.accel_bias = np.zeros(3)
+
+    @staticmethod
+    def _sensor_slice(m: mujoco.MjModel, name: str, expected_dim: int) -> slice:
+        sensor = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_SENSOR, name)
+        if sensor < 0:
+            raise ValueError(f"sensor {name!r} is missing from the model")
+        dimension = int(m.sensor_dim[sensor])
+        if dimension != expected_dim:
+            raise ValueError(f"sensor {name!r} has dimension {dimension}, expected {expected_dim}")
+        address = int(m.sensor_adr[sensor])
+        return slice(address, address + dimension)
 
     def reset(self, rng: np.random.Generator) -> None:
         """Start of an episode: draw the gyro and accelerometer biases."""
-        raise NotImplementedError
+        self.gyro_bias = rng.normal(0.0, self.ic.gyro_bias_std, 3)
+        self.accel_bias = rng.normal(0.0, self.ic.accel_bias_std, 3)
 
     def read(self, d: mujoco.MjData, rng: np.random.Generator) -> ImuReading:
-        raise NotImplementedError
+        gyro = (d.sensordata[self._gyro] + self.gyro_bias
+                + rng.normal(0.0, self.ic.gyro_noise, 3))
+        accel = (d.sensordata[self._accel] + self.accel_bias
+                 + rng.normal(0.0, self.ic.accel_noise, 3))
+
+        true_quat = d.sensordata[self._quat]
+        axis = rng.normal(size=3)
+        norm = np.linalg.norm(axis)
+        axis = axis / norm if norm > 1e-12 else np.array([1.0, 0.0, 0.0])
+        angle = rng.normal(0.0, np.deg2rad(self.ic.quat_noise_deg))
+        noise_quat = np.r_[np.cos(angle / 2), axis * np.sin(angle / 2)]
+        quat = np.empty(4)
+        mujoco.mju_mulQuat(quat, true_quat, noise_quat)
+        quat /= np.linalg.norm(quat)
+        return ImuReading(gyro=gyro, accel=accel, quat=quat)
 
 
 class Encoders:
@@ -73,10 +105,21 @@ class Encoders:
 
         Sensor name = joint name without "joint_", plus "_pos" / "_vel", e.g. joint_left_leg_1 → left_leg_1_pos.
         """
-        raise NotImplementedError("TODO: Encoders.__init__")
+        self.cfg = cfg
+        self.ec = cfg.encoder
+        joints = tuple(cfg.robot.legs) + tuple(cfg.robot.wheels)
+        self._position = [Imu._sensor_slice(m, name.removeprefix("joint_") + "_pos", 1)
+                          for name in joints]
+        self._velocity = [Imu._sensor_slice(m, name.removeprefix("joint_") + "_vel", 1)
+                          for name in joints]
+        self.quantum = 2 * np.pi / self.ec.counts_per_rev
 
     def reset(self, rng: np.random.Generator) -> None:
-        raise NotImplementedError
+        del rng
 
     def read(self, d: mujoco.MjData, rng: np.random.Generator) -> EncoderReading:
-        raise NotImplementedError
+        position = np.array([d.sensordata[address][0] for address in self._position])
+        position = np.round(position / self.quantum) * self.quantum
+        velocity = np.array([d.sensordata[address][0] for address in self._velocity])
+        velocity += rng.normal(0.0, self.ec.vel_noise, len(velocity))
+        return EncoderReading(pos=position, vel=velocity)
