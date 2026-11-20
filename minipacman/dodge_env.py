@@ -78,9 +78,19 @@ During training, for the first cfg.obs.single_ball_env_steps policy steps of eac
 """
 from __future__ import annotations
 
+import mujoco
 import numpy as np
 
+from .ball_sources import TruthBallSource, make_ball_source
+from .balls import BallLauncher
+from .cbf import SafetyFilter, cbf_reward_term
 from .config import Config
+from .depth_camera import DepthCamera, DepthFrameStack
+from .env import TitaEnv
+from .lqr import LQRBalancer, ReferenceGenerator
+from .scene import build_scene, scene_ids
+from .sensors import Encoders, Imu
+from .state_estimator import StateEstimator
 
 ACTION_DIM = 3     # (v, w, sdot); the policy outputs [-1, 1], action_to_command converts to real units
 
@@ -122,7 +132,27 @@ def ball_slot_features(balls, robot_xy: np.ndarray, robot_yaw: float, cfg: Confi
     ±clip_rel_pos.
     For a delayed estimate (b.stamp < now) you can push it forward to now with balls.predict_ball first.
     """
-    raise NotImplementedError("TODO: ball_slot_features (see docstring)")
+    robot_xy = np.asarray(robot_xy, dtype=float)
+    if robot_xy.shape != (2,) or not np.all(np.isfinite(robot_xy)):
+        raise ValueError("robot_xy must be a finite vector with shape (2,)")
+    slots = np.zeros((cfg.obs.ball_slots, cfg.obs.ball_slot_features), dtype=np.float32)
+    cosine, sine = np.cos(robot_yaw), np.sin(robot_yaw)
+    ordered = sorted(balls, key=lambda ball: np.linalg.norm(ball.position[:2] - robot_xy))
+    for slot, ball in zip(slots, ordered[:cfg.obs.ball_slots]):
+        relative = np.asarray(ball.position, dtype=float).copy()
+        relative[:2] -= robot_xy
+        forward = cosine * relative[0] + sine * relative[1]
+        left = -sine * relative[0] + cosine * relative[1]
+        velocity = np.asarray(ball.velocity, dtype=float)
+        v_forward = cosine * velocity[0] + sine * velocity[1]
+        v_left = -sine * velocity[0] + cosine * velocity[1]
+        slot[:] = [
+            np.clip(forward, -cfg.obs.clip_rel_pos, cfg.obs.clip_rel_pos),
+            np.clip(left, -cfg.obs.clip_rel_pos, cfg.obs.clip_rel_pos),
+            np.clip(relative[2], -cfg.obs.clip_rel_pos, cfg.obs.clip_rel_pos),
+            v_forward, v_left, velocity[2], float(ball.radius), 1.0,
+        ]
+    return slots.reshape(-1)
 
 
 def action_to_command(action: np.ndarray, cfg: Config) -> np.ndarray:
@@ -134,7 +164,17 @@ def action_to_command(action: np.ndarray, cfg: Config) -> np.ndarray:
         sdot = action[2] * cfg.command.sdot_max
     The lower speed limits when crouched are handled afterwards by lqr.clip_to_envelope.
     """
-    raise NotImplementedError("TODO: action_to_command")
+    values = np.asarray(action, dtype=float)
+    if values.shape != (ACTION_DIM,) or not np.all(np.isfinite(values)):
+        raise ValueError(f"action must be a finite vector with shape ({ACTION_DIM},)")
+    values = np.clip(values, -1.0, 1.0)
+    command = cfg.command
+    speed = command.v_min + 0.5 * (values[0] + 1.0) * (command.v_max_stand - command.v_min)
+    return np.array([
+        speed,
+        values[1] * command.w_max_stand,
+        values[2] * command.sdot_max,
+    ])
 
 
 class DodgeEnv:
@@ -160,7 +200,47 @@ class DodgeEnv:
           6. sensors.Imu / Encoders, state_estimator.StateEstimator (only when cfg.estimator.use_true_state=False)
           7. self.rng = np.random.default_rng(seed)
         """
-        raise NotImplementedError("TODO: DodgeEnv.__init__")
+        if reward_variant not in {"task", "task_collision", "task_cbf"}:
+            raise ValueError(f"unknown reward variant: {reward_variant!r}")
+        self.cfg = cfg
+        self.reward_variant = reward_variant
+        self.filter_mode = filter_mode
+        self.ball_source_kind = ball_source
+        self.augment_depth = bool(augment_depth)
+        self.seed = int(seed)
+
+        self.env = TitaEnv(str(build_scene(cfg=cfg)), cfg=cfg)
+        self.m, self.d = self.env.m, self.env.d
+        self.ids = scene_ids(self.m, cfg)
+        self.lqr = LQRBalancer(self.env, cfg, self.ids.robot_nv)
+        self.lqr.design_all()
+        self.ref = ReferenceGenerator(cfg)
+
+        self.launcher = BallLauncher(self.m, self.d, cfg, self.ids)
+        self.camera = DepthCamera(self.m, cfg, self.ids)
+        policy_width, policy_height = cfg.camera.policy_res
+        self.stack = DepthFrameStack((policy_height, policy_width), cfg.camera.frame_offsets)
+        self.ball_source = make_ball_source(ball_source, self.m, cfg, self.launcher, self.camera)
+        self.truth_source = TruthBallSource(self.launcher)
+        if cfg.obs.actor_ball_input == "tracker" and ball_source != "depth_tracker":
+            self.actor_ball_source = make_ball_source(
+                "depth_tracker", self.m, cfg, self.launcher, self.camera,
+            )
+        else:
+            self.actor_ball_source = self.ball_source
+        self.safety_filter = SafetyFilter(cfg, filter_mode, replan) if filter_mode else None
+
+        self.imu = Imu(self.m, cfg)
+        self.encoders = Encoders(self.m, cfg)
+        self.estimator = None if cfg.estimator.use_true_state else StateEstimator(
+            self.m, cfg, self.ids.robot_nq, self.ids.robot_nv,
+        )
+        self.total_policy_steps = 0
+        self._reset_rngs(self.seed)
+        self._balls = []
+        self._actor_balls = []
+        self._truth_balls = []
+        self._imu_reading = None
 
     def reset(self, seed: int | None = None) -> dict[str, np.ndarray]:
         """Reset one episode and return the observation {"actor": ..., "critic": ...}.
@@ -173,7 +253,52 @@ class DodgeEnv:
         steps in total, throw only 1 ball this episode (set cfg.balls.balls_per_episode to (1, 1) before
         launcher.reset, then restore it).
         """
-        raise NotImplementedError
+        if seed is not None:
+            self.seed = int(seed)
+        self._reset_rngs(self.seed)
+        stand = self.lqr.leg_poses["stand"]
+        self.env.reset(*stand)
+        initial = self.env.planar_state(0.0)
+        self.ref.reset(initial.xy, initial.yaw)
+
+        original_count = self.cfg.balls.balls_per_episode
+        use_curriculum = (self.augment_depth
+                          and self.total_policy_steps < self.cfg.obs.single_ball_env_steps)
+        try:
+            if use_curriculum:
+                self.cfg.balls.balls_per_episode = (1, 1)
+            self.launcher.reset(self.launch_rng)
+        finally:
+            self.cfg.balls.balls_per_episode = original_count
+
+        self.ball_source.reset(self.perception_rng)
+        if self.actor_ball_source is not self.ball_source:
+            self.actor_ball_source.reset(self.perception_rng)
+        self.truth_source.reset(self.launch_rng)
+        if self.safety_filter is not None:
+            self.safety_filter.reset()
+        self.imu.reset(self.imu_rng)
+        self.encoders.reset(self.imu_rng)
+        if self.estimator is not None:
+            self.estimator.reset(self.d.qpos)
+            self._q_estimate = self.d.qpos[:self.ids.robot_nq].copy()
+            self._v_estimate = self.d.qvel[:self.ids.robot_nv].copy()
+            self._imu_reading = self.imu.read(self.d, self.imu_rng)
+
+        self.stack.reset()
+        self.last_action = np.zeros(ACTION_DIM)
+        self.goal = initial.xy + self.cfg.task.goal_distance * np.array([
+            np.cos(initial.yaw), np.sin(initial.yaw),
+        ])
+        self.last_distance = float(np.linalg.norm(self.goal - initial.xy))
+        self.reached_goal = False
+        self.fell = False
+        self.t_goal = None
+        self.episode_policy_steps = 0
+        self.interventions: list[float] = []
+        self.filter_active_steps = 0
+        self._refresh_perception()
+        return {"actor": self.actor_obs(), "critic": self.critic_obs()}
 
     def step(self, action: np.ndarray) -> tuple[dict[str, np.ndarray], float, bool, bool, dict]:
         """Advance one policy step. Returns (obs, reward, terminated, truncated, info).
@@ -182,11 +307,104 @@ class DodgeEnv:
             "u_policy", "u_safe", "intervention", "filter_active", "new_hits" (how many balls newly hit this step)
         When the episode ends, also put "episode": self.episode_summary().
         """
-        raise NotImplementedError
+        action = np.asarray(action, dtype=float)
+        if action.shape != (ACTION_DIM,) or not np.all(np.isfinite(action)):
+            raise ValueError(f"action must be a finite vector with shape ({ACTION_DIM},)")
+        action = np.clip(action, -1.0, 1.0)
+        u_policy = action_to_command(action, self.cfg)
+        robot = self._robot_state()
+        if self.safety_filter is None:
+            u_safe = u_policy.copy()
+            filter_info = {"intervention": 0.0, "active": False, "h_pred": np.inf}
+        else:
+            u_safe, filter_info = self.safety_filter.filter(
+                u_policy, robot, self._balls, float(self.d.time),
+            )
+
+        new_hits = []
+        for _ in range(self.cfg.sim.policy_every):
+            reference = self.ref.update(u_safe, self.cfg.sim.timestep)
+            self.env.set_leg_targets(self.lqr.leg_targets(reference.s))
+            if self.estimator is None:
+                qpos, qvel = self.d.qpos, self.d.qvel
+            else:
+                qpos, qvel = self._q_estimate, self._v_estimate
+            self.env.set_wheel_torques(self.lqr.wheel_torques(qpos, qvel, reference))
+            self.env.step()
+            new_hits.extend(self.launcher.check_contacts())
+            if self.estimator is not None:
+                self._imu_reading = self.imu.read(self.d, self.imu_rng)
+                encoder_reading = self.encoders.read(self.d, self.imu_rng)
+                self._q_estimate, self._v_estimate = self.estimator.update(
+                    self._imu_reading, encoder_reading, self.cfg.sim.timestep,
+                )
+
+        self.launcher.update(float(self.d.time))
+        self._refresh_perception()
+        true_state = self.env.planar_state(self.ref.s)
+        distance = float(np.linalg.norm(self.goal - true_state.xy))
+        reward_cfg = self.cfg.reward
+        reward = reward_cfg.progress_weight * (self.last_distance - distance)
+        at_goal = distance <= self.cfg.task.goal_radius
+        if at_goal and not self.reached_goal:
+            self.reached_goal = True
+            self.t_goal = float(self.d.time)
+            reward += reward_cfg.goal_bonus
+        if at_goal:
+            reward += reward_cfg.at_goal_weight
+        reward -= reward_cfg.action_rate_weight * float(np.sum((action - self.last_action) ** 2))
+
+        self.fell = abs(self.env.pitch()) > self.cfg.task.fall_pitch
+        if self.fell:
+            reward -= reward_cfg.fall_penalty
+        if self.reward_variant == "task_collision":
+            reward -= reward_cfg.collision_penalty * len(new_hits)
+        elif self.reward_variant == "task_cbf":
+            reward += cbf_reward_term(
+                self.m, self.d, self.ids.robot_collision_geoms,
+                self._truth_balls, self.cfg.cbf,
+            )
+
+        self.last_distance = distance
+        self.last_action = action.copy()
+        self.episode_policy_steps += 1
+        self.total_policy_steps += 1
+        if self.safety_filter is not None:
+            self.interventions.append(float(filter_info["intervention"]))
+            self.filter_active_steps += int(filter_info["active"])
+
+        terminated = bool(self.fell)
+        truncated = bool(self.d.time + 1e-12 >= self.cfg.sim.episode_seconds)
+        info = {
+            "u_policy": u_policy.copy(),
+            "u_safe": np.asarray(u_safe).copy(),
+            "intervention": float(filter_info["intervention"]),
+            "filter_active": bool(filter_info["active"]),
+            "h_pred": float(filter_info["h_pred"]),
+            "new_hits": len(new_hits),
+        }
+        if terminated or truncated:
+            info["episode"] = self.episode_summary()
+        observation = {"actor": self.actor_obs(), "critic": self.critic_obs()}
+        return observation, float(reward), terminated, truncated, info
 
     def episode_summary(self) -> dict:
         """This episode's result, in the EPISODE_SCHEMA format of evaluate.py (use launcher.episode_records() for "balls")."""
-        raise NotImplementedError
+        records = self.launcher.episode_records()
+        filter_on = self.safety_filter is not None
+        return {
+            "success": bool(self.reached_goal and not self.fell),
+            "fell": bool(self.fell),
+            "t_goal": self.t_goal,
+            "n_thrown": sum(bool(record["launched"]) for record in records),
+            "n_hit": sum(bool(record["hit"]) for record in records),
+            "balls": records,
+            "intervention_mean": (float(np.mean(self.interventions))
+                                  if filter_on and self.interventions else (0.0 if filter_on else None)),
+            "filter_active_frac": (self.filter_active_steps / max(self.episode_policy_steps, 1)
+                                   if filter_on else None),
+            "episode_seconds": float(self.d.time),
+        }
 
     # ---------------- observations (design: see "Observations" above; order follows obs_layout) ----------------
     def actor_obs(self) -> np.ndarray:
@@ -201,11 +419,90 @@ class DodgeEnv:
         Render the depth image only once per policy step (render once, share it between the policy image and the
         depth_tracker ball source: ball_source.update(d, rng, frame=frame)).
         """
-        raise NotImplementedError("TODO: actor_obs")
+        layout = obs_layout(self.cfg)["actor"]
+        observation = np.zeros(self.actor_obs_dim, dtype=np.float32)
+        if "depth" in layout:
+            observation[layout["depth"]] = self.stack.get()
+        else:
+            robot = self._robot_state()
+            observation[layout["tracked_balls"]] = ball_slot_features(
+                self._actor_balls, robot.xy, robot.yaw, self.cfg,
+            )
+
+        if self.estimator is None:
+            gyro = self.d.sensordata[self.imu._gyro].copy()
+            quat = self.d.sensordata[self.imu._quat].copy()
+            robot = self.env.planar_state(self.ref.s)
+        else:
+            gyro = self._imu_reading.gyro
+            quat = self.estimator.quat
+            robot = self.estimator.planar_state()
+        rotation = np.empty(9)
+        mujoco.mju_quat2Mat(rotation, quat)
+        gravity = rotation.reshape(3, 3).T @ np.array([0.0, 0.0, -1.0])
+        observation[layout["gyro"]] = gyro
+        observation[layout["gravity"]] = gravity
+        observation[layout["forward_speed"]] = robot.v
+        observation[layout["crouch"]] = self.ref.s
+        observation[layout["last_action"]] = self.last_action
+        relative_goal = self.goal - robot.xy
+        cosine, sine = np.cos(robot.yaw), np.sin(robot.yaw)
+        observation[layout["goal"]] = [
+            cosine * relative_goal[0] + sine * relative_goal[1],
+            -sine * relative_goal[0] + cosine * relative_goal[1],
+        ]
+        return observation
 
     def critic_obs(self) -> np.ndarray:
         """Critic observation (632,) float32 = actor_obs() followed by the true base velocity (3) and true ball states (40)."""
-        raise NotImplementedError("TODO: critic_obs")
+        layout = obs_layout(self.cfg)["critic"]
+        actor = self.actor_obs()
+        observation = np.zeros(self.critic_obs_dim, dtype=np.float32)
+        observation[:len(actor)] = actor
+        true_state = self.env.planar_state(self.ref.s)
+        spatial_velocity = np.empty(6)
+        mujoco.mj_objectVelocity(
+            self.m, self.d, mujoco.mjtObj.mjOBJ_BODY,
+            self.ids.base_body, spatial_velocity, 0,
+        )
+        cosine, sine = np.cos(true_state.yaw), np.sin(true_state.yaw)
+        vx, vy, vz = spatial_velocity[3:6]
+        observation[layout["base_vel"]] = [
+            cosine * vx + sine * vy,
+            -sine * vx + cosine * vy,
+            vz,
+        ]
+        observation[layout["balls"]] = ball_slot_features(
+            self._truth_balls, true_state.xy, true_state.yaw, self.cfg,
+        )
+        return observation
+
+    def _reset_rngs(self, seed: int) -> None:
+        streams = np.random.SeedSequence(seed).spawn(4)
+        self.launch_rng = np.random.default_rng(streams[0])
+        self.perception_rng = np.random.default_rng(streams[1])
+        self.imu_rng = np.random.default_rng(streams[2])
+        self.augment_rng = np.random.default_rng(streams[3])
+        self.rng = self.launch_rng
+
+    def _refresh_perception(self) -> None:
+        frame = self.camera.render(self.d)
+        self.stack.push(self.camera.policy_image(
+            frame, self.augment_rng, augment=self.augment_depth,
+        ))
+        self._balls = self.ball_source.update(self.d, self.perception_rng, frame)
+        if self.actor_ball_source is self.ball_source:
+            self._actor_balls = self._balls
+        else:
+            self._actor_balls = self.actor_ball_source.update(
+                self.d, self.perception_rng, frame,
+            )
+        self._truth_balls = self.truth_source.update(self.d)
+
+    def _robot_state(self):
+        if self.estimator is None:
+            return self.env.planar_state(self.ref.s)
+        return self.estimator.planar_state()
 
     @property
     def actor_obs_dim(self) -> int:
