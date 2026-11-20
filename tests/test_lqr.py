@@ -1,55 +1,114 @@
-"""Tests for lqr.py. [Delete the pytestmark line below once lqr.py and the env.py interface are implemented]
+"""Tests for the TITA LQR balance controller."""
 
-These numbers were all measured in the prototype (TITA_Feasibility_Check.ipynb, run on AUP); splitting the code into
-files shouldn't change them.
-"""
+import mujoco
 import numpy as np
 import pytest
 
-pytestmark = pytest.mark.skip(reason="TODO: delete this line after implementing lqr.py")
+from conftest import need_tita
 
-from conftest import need_tita  # noqa: E402
+
+def _build_controller(cfg):
+    from minipacman.env import TitaEnv
+    from minipacman.lqr import LQRBalancer
+    from minipacman.scene import build_scene, scene_ids
+
+    env = TitaEnv(str(build_scene(cfg=cfg)), cfg=cfg)
+    ids = scene_ids(env.m, cfg)
+    controller = LQRBalancer(env, cfg, ids.robot_nv)
+    controller.design_all()
+    return env, controller
+
+
+def _simulate(env, controller, cfg, seconds, command, push=0.0):
+    from minipacman.lqr import ReferenceGenerator
+
+    env.reset(*controller.leg_poses["stand"])
+    initial = env.planar_state()
+    references = ReferenceGenerator(cfg)
+    references.reset(initial.xy, initial.yaw)
+    times, speeds, turn_rates, pitches = [], [], [], []
+
+    for _ in range(round(seconds / cfg.sim.timestep)):
+        time = float(env.d.time)
+        env.d.xfrc_applied[env.base, 0] = push if 1.0 <= time < 1.1 else 0.0
+        reference = references.update(np.asarray(command, dtype=float), cfg.sim.timestep)
+        env.set_leg_targets(controller.leg_targets(reference.s))
+        env.set_wheel_torques(controller.wheel_torques(env.d.qpos, env.d.qvel, reference))
+        env.step()
+        state = env.planar_state(reference.s)
+        times.append(float(env.d.time))
+        speeds.append(state.v)
+        turn_rates.append(state.w)
+        pitches.append(env.pitch())
+    return {
+        "times": np.asarray(times),
+        "speeds": np.asarray(speeds),
+        "turn_rates": np.asarray(turn_rates),
+        "pitches": np.asarray(pitches),
+    }
 
 
 def test_clip_to_envelope(cfg):
     from minipacman.lqr import clip_to_envelope
-    c = cfg.command
-    u = clip_to_envelope(np.array([5.0, 5.0, 5.0]), 0.0, c)
-    assert np.allclose(u, [c.v_max_stand, c.w_max_stand, c.sdot_max])
-    u = clip_to_envelope(np.array([5.0, -5.0, 5.0]), 1.0, c)
-    assert np.allclose(u, [c.v_max_crouch, -c.w_max_crouch, 0.0]), "fully crouched: slower, and can't go lower"
-    u = clip_to_envelope(np.array([0.0, 0.0, -5.0]), 0.0, c)
-    assert u[2] == 0.0, "standing straight: can't go higher"
+
+    command = cfg.command
+    u = clip_to_envelope(np.array([5.0, 5.0, 5.0]), 0.0, command)
+    assert np.allclose(u, [command.v_max_stand, command.w_max_stand, command.sdot_max])
+    u = clip_to_envelope(np.array([5.0, -5.0, 5.0]), 1.0, command)
+    assert np.allclose(u, [command.v_max_crouch, -command.w_max_crouch, 0.0])
+    u = clip_to_envelope(np.array([0.0, 0.0, -5.0]), 0.0, command)
+    assert u[2] == 0.0
 
 
 def test_reference_rate_limit(cfg):
     from minipacman.lqr import ReferenceGenerator
-    ref_gen = ReferenceGenerator(cfg)
-    ref_gen.reset(np.zeros(2), 0.0)
-    ref = ref_gen.update(np.array([0.8, 0.0, 0.0]), cfg.sim.timestep)
-    assert ref.v <= cfg.command.accel_limit * cfg.sim.timestep + 1e-12, "the speed command can't jump up in one step"
+
+    generator = ReferenceGenerator(cfg)
+    generator.reset(np.zeros(2), 0.0)
+    reference = generator.update(np.array([0.8, 2.0, 0.0]), cfg.sim.timestep)
+    assert reference.v <= cfg.command.accel_limit * cfg.sim.timestep + 1e-12
+    assert reference.w <= cfg.command.yaw_accel_limit * cfg.sim.timestep + 1e-12
 
 
 @need_tita
 def test_gains_are_finite_and_abad_zero(cfg):
-    """The DARE must be solvable (robot dofs only) and the abad joint gains must be 0."""
-    pytest.fail("TODO: build TitaEnv + LQRBalancer, call design_all(), check K has no nan and the abad columns are 0")
+    env, controller = _build_controller(cfg)
+    n = controller.robot_nv
+    abad_dofs = []
+    for name in (cfg.robot.legs[0], cfg.robot.legs[3]):
+        joint = mujoco.mj_name2id(env.m, mujoco.mjtObj.mjOBJ_JOINT, name)
+        abad_dofs.append(int(env.m.jnt_dofadr[joint]))
+
+    for gain in controller.gains.values():
+        assert gain.shape == (2, 2 * n)
+        assert np.all(np.isfinite(gain))
+        for dof in abad_dofs:
+            np.testing.assert_array_equal(gain[:, [dof, n + dof]], 0.0)
 
 
 @need_tita
 @pytest.mark.parametrize("push", [30.0, 60.0, 100.0])
 def test_survives_push(cfg, push):
-    """Standing, the robot doesn't fall after a 0.1 s horizontal push (prototype: fine at 30/60/100 N)."""
-    pytest.fail("TODO: simulate 3 s, push the base with `push` N at t=1 s (d.xfrc_applied), check |pitch| < 1")
+    env, controller = _build_controller(cfg)
+    result = _simulate(env, controller, cfg, 3.0, [0.0, 0.0, 0.0], push=push)
+    assert np.max(np.abs(result["pitches"])) < 1.0
 
 
 @need_tita
 def test_drive_speed(cfg):
-    """Driving at 0.5 m/s: about 0.5 m/s after 3 s (prototype 0.516), about 0.36 s to reach 90% speed."""
-    pytest.fail("TODO")
+    env, controller = _build_controller(cfg)
+    result = _simulate(env, controller, cfg, 3.0, [0.5, 0.0, 0.0])
+    tail_speed = float(np.mean(result["speeds"][-100:]))
+    assert tail_speed == pytest.approx(0.5, abs=0.08)
+    reached = np.flatnonzero(result["speeds"] >= 0.45)
+    assert reached.size, "the robot never reached 90% of the requested speed"
+    assert 0.2 < result["times"][reached[0]] < 0.8
 
 
 @need_tita
 def test_turning(cfg):
-    """Standing, circling at v=0.5, w=1.5 for 2 s: doesn't fall, turn-rate error < 0.2 rad/s (checked on a laptop)."""
-    pytest.fail("TODO")
+    env, controller = _build_controller(cfg)
+    result = _simulate(env, controller, cfg, 2.0, [0.5, 1.5, 0.0])
+    tail_turn_rate = float(np.mean(result["turn_rates"][-100:]))
+    assert np.max(np.abs(result["pitches"])) < 1.0
+    assert abs(tail_turn_rate - 1.5) < 0.2

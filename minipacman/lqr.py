@@ -52,7 +52,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+import mujoco
 import numpy as np
+import scipy.linalg as sla
 
 from .config import Config, CommandConfig
 
@@ -77,7 +79,25 @@ def clip_to_envelope(u: np.ndarray, s: float, cmd: CommandConfig) -> np.ndarray:
     negative when s is already 0, or positive when s is 1.
     Return a new np.ndarray (don't modify the input).
     """
-    raise NotImplementedError("TODO: clip_to_envelope")
+    command = np.asarray(u, dtype=float)
+    if command.shape != (3,):
+        raise ValueError(f"u must have shape (3,), got {command.shape}")
+    if not np.all(np.isfinite(command)) or not np.isfinite(s):
+        raise ValueError("u and s must contain only finite values")
+
+    crouch = float(np.clip(s, 0.0, 1.0))
+    v_max = cmd.v_max_stand + (cmd.v_max_crouch - cmd.v_max_stand) * crouch
+    w_max = cmd.w_max_stand + (cmd.w_max_crouch - cmd.w_max_stand) * crouch
+    clipped = np.array([
+        np.clip(command[0], cmd.v_min, v_max),
+        np.clip(command[1], -w_max, w_max),
+        np.clip(command[2], -cmd.sdot_max, cmd.sdot_max),
+    ], dtype=float)
+    if crouch <= 0.0:
+        clipped[2] = max(0.0, clipped[2])
+    if crouch >= 1.0:
+        clipped[2] = min(0.0, clipped[2])
+    return clipped
 
 
 class ReferenceGenerator:
@@ -93,18 +113,40 @@ class ReferenceGenerator:
 
     def __init__(self, cfg: Config):
         self.cfg = cfg
-        raise NotImplementedError("TODO: ReferenceGenerator.__init__")
+        self._reference = Reference(np.zeros(2), 0.0, 0.0, 0.0, 0.0)
 
     def reset(self, p0: np.ndarray, psi0: float) -> None:
         """Start of an episode: reference position = robot position, speeds 0, s = 0."""
-        raise NotImplementedError
+        position = np.asarray(p0, dtype=float)
+        if position.shape != (2,):
+            raise ValueError(f"p0 must have shape (2,), got {position.shape}")
+        if not np.all(np.isfinite(position)) or not np.isfinite(psi0):
+            raise ValueError("p0 and psi0 must contain only finite values")
+        self._reference = Reference(position.copy(), float(psi0), 0.0, 0.0, 0.0)
 
     def update(self, u: np.ndarray, dt: float) -> Reference:
-        raise NotImplementedError
+        if not np.isfinite(dt) or dt <= 0.0:
+            raise ValueError("dt must be positive and finite")
+        command = clip_to_envelope(u, self.s, self.cfg.command)
+        previous = self._reference
+        limits = self.cfg.command
+
+        dv = np.clip(command[0] - previous.v,
+                     -limits.accel_limit * dt, limits.accel_limit * dt)
+        dw = np.clip(command[1] - previous.w,
+                     -limits.yaw_accel_limit * dt, limits.yaw_accel_limit * dt)
+        v = float(previous.v + dv)
+        w = float(previous.w + dw)
+        s = float(np.clip(previous.s + command[2] * dt, 0.0, 1.0))
+        psi = float(previous.psi + w * dt)
+        heading = np.array([np.cos(psi), np.sin(psi)])
+        position = previous.p + v * dt * heading
+        self._reference = Reference(position, psi, v, w, s)
+        return Reference(position.copy(), psi, v, w, s)
 
     @property
     def s(self) -> float:
-        raise NotImplementedError
+        return self._reference.s
 
 
 class LQRBalancer:
@@ -113,11 +155,27 @@ class LQRBalancer:
     def __init__(self, env, cfg: Config, robot_nv: int):
         """env: TitaEnv from env.py (needs m, d, poses, legs_of, balanced_k, reset, roll).
         robot_nv: number of robot dofs; the ball dofs come after (see pitfall 1)."""
-        raise NotImplementedError("TODO: LQRBalancer.__init__")
+        if not 0 < robot_nv <= env.m.nv:
+            raise ValueError(f"robot_nv must be in [1, {env.m.nv}], got {robot_nv}")
+        self.env = env
+        self.cfg = cfg
+        self.m, self.d = env.m, env.d
+        self.robot_nv = int(robot_nv)
+        self.gains: dict[str, np.ndarray] = {}
+        self.q0: dict[str, np.ndarray] = {}
+        self.leg_poses: dict[str, tuple[float, float]] = {}
+        self.env.find_mirror()
 
     def design_all(self) -> None:
         """Design the gains for standing (cfg.robot.stand_hip) and the lowest crouch (cfg.robot.crouch_hip), store in self.gains."""
-        raise NotImplementedError
+        for name, hip in (("stand", self.cfg.robot.stand_hip),
+                          ("crouch", self.cfg.robot.crouch_hip)):
+            q0, gain = self.design(name, hip)
+            self.q0[name] = q0
+            self.gains[name] = gain
+        self.env.gains = self.gains
+        self.env.poses = self.leg_poses
+        self.env.reset(*self.leg_poses["stand"])
 
     def design(self, name: str, hip: float) -> tuple[np.ndarray, np.ndarray]:
         """Linearize at one pose and solve the DARE; return (q0 linearization pose, K gains (2, 2*robot_nv)).
@@ -131,11 +189,70 @@ class LQRBalancer:
           5. multiply A and B by sqrt(discount), then scipy.linalg.solve_discrete_are
           6. K = (R + B'PB)^-1 B'PA; zero the abad columns
         """
-        raise NotImplementedError
+        knee = self.env.balanced_k(hip)
+        if knee is None:
+            raise RuntimeError(f"could not find a balanced knee angle for hip={hip}")
+        self.leg_poses[name] = (float(hip), float(knee))
+        self.env.reset(hip, knee)
+        q0 = self.d.qpos.copy()
+
+        state_dim = 2 * self.m.nv + self.m.na
+        transition = np.empty((state_dim, state_dim))
+        control = np.empty((state_dim, self.m.nu))
+        frictionloss = self.m.dof_frictionloss.copy()
+        try:
+            if self.cfg.lqr.zero_frictionloss_when_linearizing:
+                self.m.dof_frictionloss[:] = 0.0
+            mujoco.mj_forward(self.m, self.d)
+            mujoco.mjd_transitionFD(
+                self.m, self.d, self.cfg.lqr.fd_eps, True,
+                transition, control, None, None,
+            )
+        finally:
+            self.m.dof_frictionloss[:] = frictionloss
+            mujoco.mj_forward(self.m, self.d)
+
+        n = self.robot_nv
+        robot_state = np.r_[np.arange(n), self.m.nv + np.arange(n)]
+        a = transition[np.ix_(robot_state, robot_state)]
+        b = control[np.ix_(robot_state, self.env.wact)]
+
+        weights = np.full(2 * n, self.cfg.lqr.q_default)
+        weights[0] = self.cfg.lqr.q_pos_x
+        weights[4] = self.cfg.lqr.q_pitch
+        weights[5] = self.cfg.lqr.q_yaw
+        weights[n] = self.cfg.lqr.q_vel_x
+        weights[n + 4] = self.cfg.lqr.q_pitch_rate
+        weights[n + 5] = self.cfg.lqr.q_yaw_rate
+        weights[np.asarray(self.env.wdofs, dtype=int)] = 0.0
+        q = np.diag(weights)
+        r = self.cfg.lqr.r_wheel * np.eye(len(self.env.wact))
+
+        discount = np.sqrt(self.cfg.lqr.discount)
+        a_discounted, b_discounted = discount * a, discount * b
+        p = sla.solve_discrete_are(a_discounted, b_discounted, q, r)
+        gain = np.linalg.solve(
+            r + b_discounted.T @ p @ b_discounted,
+            b_discounted.T @ p @ a_discounted,
+        )
+
+        if self.cfg.lqr.zero_abad_gains:
+            for joint_name in (self.cfg.robot.legs[0], self.cfg.robot.legs[3]):
+                joint = mujoco.mj_name2id(self.m, mujoco.mjtObj.mjOBJ_JOINT, joint_name)
+                dof = int(self.m.jnt_dofadr[joint])
+                gain[:, [dof, n + dof]] = 0.0
+        if not np.all(np.isfinite(gain)):
+            raise RuntimeError(f"non-finite LQR gain for {name}")
+        return q0, gain
 
     def leg_targets(self, s: float) -> np.ndarray:
         """Targets for the 6 leg joints: hip and knee blended between standing and crouched by s (env.legs_of(h, k))."""
-        raise NotImplementedError
+        self._require_designed()
+        crouch = float(np.clip(s, 0.0, 1.0))
+        stand = np.asarray(self.leg_poses["stand"])
+        low = np.asarray(self.leg_poses["crouch"])
+        hip, knee = (1.0 - crouch) * stand + crouch * low
+        return np.asarray(self.env.legs_of(float(hip), float(knee)))
 
     def wheel_torques(self, qpos: np.ndarray, qvel: np.ndarray, ref: Reference) -> np.ndarray:
         """Torques for the 2 wheels (Nm), clipped to ±cfg.robot.wheel_torque_limit.
@@ -143,4 +260,53 @@ class LQRBalancer:
         qpos, qvel: the full state (true values or the state_estimator's estimate).
         Steps: see "Turning" a-e above; K and q0 are blended between the two sets by ref.s.
         """
-        raise NotImplementedError
+        self._require_designed()
+        position = np.asarray(qpos, dtype=float)
+        velocity = np.asarray(qvel, dtype=float)
+        if position.shape != (self.m.nq,) or velocity.shape != (self.m.nv,):
+            raise ValueError(
+                f"qpos/qvel must have shapes ({self.m.nq},)/({self.m.nv},), "
+                f"got {position.shape}/{velocity.shape}"
+            )
+
+        crouch = float(np.clip(ref.s, 0.0, 1.0))
+        gain = (1.0 - crouch) * self.gains["stand"] + crouch * self.gains["crouch"]
+        q_reference = ((1.0 - crouch) * self.q0["stand"]
+                       + crouch * self.q0["crouch"])
+        root = self.env.root_qadr
+        q_reference[root:root + 2] = ref.p
+        yaw_quat = np.array([np.cos(ref.psi / 2), 0.0, 0.0, np.sin(ref.psi / 2)])
+        base_quat = q_reference[root + 3:root + 7].copy()
+        mujoco.mju_mulQuat(q_reference[root + 3:root + 7], yaw_quat, base_quat)
+
+        dq = np.zeros(self.m.nv)
+        mujoco.mj_differentiatePos(self.m, dq, 1.0, q_reference, position)
+        rotation = np.empty(9)
+        mujoco.mju_quat2Mat(rotation, position[root + 3:root + 7])
+        rotation = rotation.reshape(3, 3)
+        yaw = float(np.arctan2(rotation[1, 0], rotation[0, 0]))
+        heading = np.array([np.cos(yaw), np.sin(yaw)])
+
+        n = self.robot_nv
+        position_error = dq[:n].copy()
+        position_error[0] = heading @ position_error[:2]
+        position_error[1] = 0.0
+        for wheel_dof, (coefficient, y_offset) in zip(self.env.wdofs, self.env.roll):
+            position_error[wheel_dof] = coefficient * (
+                position_error[0] - position_error[5] * y_offset
+            )
+
+        velocity_error = velocity[:n].copy()
+        velocity_error[0] = heading @ velocity_error[:2] - ref.v
+        velocity_error[1] = 0.0
+        velocity_error[5] -= ref.w
+        for wheel_dof, (coefficient, y_offset) in zip(self.env.wdofs, self.env.roll):
+            velocity_error[wheel_dof] -= coefficient * (ref.v - ref.w * y_offset)
+
+        torque = -gain @ np.r_[position_error, velocity_error]
+        limit = self.cfg.robot.wheel_torque_limit
+        return np.clip(torque, -limit, limit)
+
+    def _require_designed(self) -> None:
+        if set(self.gains) != {"stand", "crouch"}:
+            raise RuntimeError("call design_all() before using the LQR controller")
