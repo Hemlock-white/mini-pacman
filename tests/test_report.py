@@ -65,6 +65,38 @@ def test_part_exp3_flow(tmp_path, monkeypatch, cfg):
     assert (tmp_path / "exp3" / "exp3_collision_rate.png").exists()
 
 
+def test_part_exp1_flow(tmp_path, monkeypatch, cfg):
+    """Exp 1 builds reward x filter conditions and writes both grouped plots."""
+    run = importlib.import_module("run_mini_pacman_experiments")
+    import minipacman.evaluate as ev
+    seen = []
+    for reward_variant in cfg.exp.reward_variants:
+        policy = tmp_path / f"{reward_variant}.pt"
+        policy.write_bytes(b"x")
+        monkeypatch.setitem(run.POLICY_FILES, reward_variant, str(policy))
+
+    def fake_run_condition(condition, seeds, cfg_, out_path, device, resume=True):
+        seen.append(condition)
+        probability = 0.15 if condition.filter_mode else 0.5
+        rng = np.random.default_rng(len(seen) + 20)
+        episodes = [_fake_episode(rng, probability, seed, condition.name) for seed in seeds]
+        report.save_jsonl(episodes, out_path)
+        return episodes
+
+    monkeypatch.setattr(ev, "run_condition", fake_run_condition)
+    args = argparse.Namespace(seeds=None, quick=True, force=False, device="cpu")
+    rows = run.part_exp1(cfg, args, tmp_path)
+    assert [condition.name for condition in seen] == [
+        f"exp1_{reward}_{suffix}"
+        for reward in cfg.exp.reward_variants
+        for suffix in ("nofilter", "filter")
+    ]
+    assert len(rows) == 6
+    assert (tmp_path / "exp1" / "summary.csv").exists()
+    assert (tmp_path / "exp1" / "exp1_collision_rate.png").exists()
+    assert (tmp_path / "exp1" / "exp1_success_intervention.png").exists()
+
+
 def test_part_exp2_flow(tmp_path, monkeypatch, cfg):
     """Exp 2 builds the naive/lag-aware scripted conditions and writes both plots."""
     run = importlib.import_module("run_mini_pacman_experiments")

@@ -151,7 +151,23 @@ def part_exp1(cfg: Config, args, out_root: Path) -> list[dict]:
       3. report.print_table(rows); try: report.plot_exp1(rows, out_root / "exp1")
       4. return rows
     """
-    raise NotImplementedError("TODO: part_exp1 (see docstring)")
+    conditions = []
+    for reward_variant in cfg.exp.reward_variants:
+        for filter_mode in (None, cfg.exp.exp1_filter_mode):
+            conditions.append(Condition(
+                name=f"exp1_{reward_variant}_{'filter' if filter_mode else 'nofilter'}",
+                policy=policy_path(reward_variant),
+                reward_variant=reward_variant,
+                filter_mode=filter_mode,
+                replan="every_step",
+                ball_source=cfg.exp.exp1_filter_source,
+            ))
+    exp_dir = out_root / "exp1"
+    rows = run_conditions(conditions, exp_dir, cfg, args)
+    report.print_table(rows)
+    report.plot_exp1(rows, exp_dir)
+    print(f"  plots: {exp_dir}/exp1_*.png")
+    return rows
 
 
 def part_exp2(cfg: Config, args, out_root: Path) -> list[dict]:

@@ -181,7 +181,69 @@ def plot_exp1(rows: list[dict], out_dir: str | Path) -> None:
          the filter to step in less?
     See bar_chart() and plot_exp3() for how it's done; grouped bars are ax.bar(x ± width/2, ...).
     """
-    raise NotImplementedError("TODO: implement plot_exp1 (see docstring)")
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    rewards = list(dict.fromkeys(str(row["reward_variant"]) for row in rows))
+    modes = ((None, "filter off"), ("filter", "filter on"))
+    x = np.arange(len(rewards), dtype=float)
+    width = 0.36
+
+    def select(reward, mode):
+        for row in rows:
+            filter_on = row.get("filter_mode") is not None
+            if row.get("reward_variant") == reward and filter_on == (mode == "filter"):
+                return row
+        raise ValueError(f"missing Exp 1 row for {reward}, {mode}")
+
+    fig, axis = plt.subplots(figsize=(7.0, 4.0))
+    for index, (mode, label) in enumerate(modes):
+        selected = [select(reward, mode) for reward in rewards]
+        values = np.array([row["collision_rate"] for row in selected], dtype=float)
+        lower = np.array([row["collision_rate_lo"] for row in selected], dtype=float)
+        upper = np.array([row["collision_rate_hi"] for row in selected], dtype=float)
+        offset = (index - 0.5) * width
+        axis.bar(
+            x + offset, values, width=width, label=label,
+            yerr=np.vstack([values - lower, upper - values]), capsize=4,
+        )
+    axis.set_xticks(x, rewards)
+    axis.set_ylabel("collision rate (hit balls / thrown)")
+    axis.set_title("Exp 1: learned reward vs runtime enforcement")
+    axis.grid(axis="y", alpha=0.3)
+    axis.legend()
+    fig.tight_layout()
+    fig.savefig(out_dir / "exp1_collision_rate.png", dpi=150)
+    plt.close(fig)
+
+    filter_rows = [select(reward, "filter") for reward in rewards]
+    fig, axes = plt.subplots(1, 2, figsize=(10.0, 4.0))
+    success = np.array([row["success_rate"] for row in filter_rows], dtype=float)
+    success_lo = np.array([row["success_rate_lo"] for row in filter_rows], dtype=float)
+    success_hi = np.array([row["success_rate_hi"] for row in filter_rows], dtype=float)
+    axes[0].bar(
+        x, success,
+        yerr=np.vstack([success - success_lo, success_hi - success]), capsize=4,
+        color="#4C78A8",
+    )
+    axes[0].set_title("Task success with filter on")
+    axes[0].set_ylabel("success rate")
+    interventions = [
+        np.nan if row.get("intervention_mean") is None else row["intervention_mean"]
+        for row in filter_rows
+    ]
+    axes[1].bar(x, interventions, color="#F58518")
+    axes[1].set_title("Filter intervention by policy")
+    axes[1].set_ylabel("mean command intervention")
+    for axis in axes:
+        axis.set_xticks(x, rewards, rotation=15, ha="right")
+        axis.grid(axis="y", alpha=0.3)
+    fig.tight_layout()
+    fig.savefig(out_dir / "exp1_success_intervention.png", dpi=150)
+    plt.close(fig)
 
 
 def plot_exp2(rows: list[dict], out_dir: str | Path) -> None:
