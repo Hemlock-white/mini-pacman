@@ -243,6 +243,10 @@ outputs/policies/task_collision/20261121_tuned_seed1/model_200.pt
 
 進入 `task_cbf` 前，將 `CBFConfig.reward_weight` 從 `0.27` 調為 `2.7`。原因是 task progress reward 已放大十倍；CBF 是逐步提供的 dense safety signal，也需要維持相同的相對尺度。
 
+從隨機 policy 使用 CBF weight 2.7 訓練 500 iterations 後，所有固定-seed checkpoints 都是 `0/5` success。`model_499.pt` 達到 `0/5` fall、`5/13 = 38.5%` collision，證明 dense CBF signal 能學到安全行為，但策略完全放棄抵達目標。
+
+因此後續改用 curriculum fine-tuning：從已具備任務能力的 `task model_1499.pt` 開始，將 CBF weight 降至 `1.0`，並以 learning rate `1e-4` 加入安全行為。這避免要求隨機 policy 同時學平衡、走路、到達目標與避球。
+
 ## 查看訓練進度
 
 查看最新 checkpoint：
