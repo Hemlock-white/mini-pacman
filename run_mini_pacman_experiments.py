@@ -38,7 +38,7 @@ from minipacman.runtime import device_report, pick_device, warn_if_not_rocm
 # ============================================================================================
 POLICY_FILES = {
     "task": "outputs/policies/task/20261121_tuned_seed0/model_1499.pt",
-    "task_collision": "outputs/policies/task_collision/RUN_NAME/model_5000.pt",
+    "task_collision": "outputs/policies/task_collision/20261121_tuned_seed1/model_200.pt",
     "task_cbf": "outputs/policies/task_cbf/RUN_NAME/model_5000.pt",
 }
 

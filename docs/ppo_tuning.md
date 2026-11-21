@@ -233,6 +233,16 @@ outputs/policies/task/20261121_tuned_seed0/model_1499.pt
 
 因此下一輪採用中間值 `collision_penalty=100`，並從 penalty-50 階段仍保有任務能力的 `model_200.pt` 開始，以 `1e-4` 做 safety fine-tuning，而不是重新從隨機 policy 開始。
 
+penalty-100 fine-tuning 到 iteration 699 後仍沒有改善：候選 checkpoints 的 collision rate 為 80%–92.3%，且成功率沒有超過原本的 phase-1 `model_200.pt`。因此停止繼續投入 `task_collision` 訓練，最終選用：
+
+```text
+outputs/policies/task_collision/20261121_tuned_seed1/model_200.pt
+```
+
+在相同五個 seeds 上，它得到 `2/5` success、`1/5` fall、`9/13 = 69.2%` collision；選定的 `task` policy 約為 `10/13 = 76.9%` collision。改善幅度有限，但這是目前唯一同時保留部分任務能力並降低碰撞的 checkpoint。
+
+進入 `task_cbf` 前，將 `CBFConfig.reward_weight` 從 `0.27` 調為 `2.7`。原因是 task progress reward 已放大十倍；CBF 是逐步提供的 dense safety signal，也需要維持相同的相對尺度。
+
 ## 查看訓練進度
 
 查看最新 checkpoint：

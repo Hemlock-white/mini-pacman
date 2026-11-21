@@ -247,7 +247,9 @@ class CBFConfig:
     alpha: float = 1.0
     margin: float = 0.05
     constraint_clip: float = 2.0
-    reward_weight: float = 0.27
+    # Task progress was scaled by 10 during PPO tuning; keep the dense safety
+    # signal at the same relative scale.
+    reward_weight: float = 2.7
     threat_min_height_above_radius: float = 0.05   # a ball is a threat only when it is off the floor
     threat_min_speed: float = 0.5                   # and its horizontal speed is > 0.5 m/s
     # Runtime filter (ours; PAC-MAN's deployed config has no filter)
