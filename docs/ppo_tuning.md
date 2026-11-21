@@ -247,6 +247,26 @@ outputs/policies/task_collision/20261121_tuned_seed1/model_200.pt
 
 因此後續改用 curriculum fine-tuning：從已具備任務能力的 `task model_1499.pt` 開始，將 CBF weight 降至 `1.0`，並以 learning rate `1e-4` 加入安全行為。這避免要求隨機 policy 同時學平衡、走路、到達目標與避球。
 
+固定 seeds 的 curriculum checkpoint 比較如下：
+
+| Checkpoint | Success | Fell | Collision rate |
+|---|---:|---:|---:|
+| task 起點 `model_1499.pt` | 3/5 | 0/5 | 76.9% |
+| CBF `model_1500.pt` | 4/5 | 1/5 | 72.7% |
+| CBF `model_1600.pt` | 4/5 | 1/5 | 80.0% |
+| CBF `model_1700.pt` | 0/5 | 2/5 | 70.0% |
+| CBF `model_1800.pt` | 0/5 | 1/5 | 81.8% |
+| CBF `model_1900.pt` | 1/5 | 1/5 | 72.7% |
+| CBF `model_1998.pt` | 0/5 | 1/5 | 66.7% |
+
+CBF fine-tuning 很快就開始犧牲任務能力，因此採 early stopping，最終選用：
+
+```text
+outputs/policies/task_cbf/20261121_cbf1_from_task1499_seed2/model_1500.pt
+```
+
+它在小樣本 gate 中將 success 從 3/5 提升至 4/5，collision 從 76.9% 小幅降至 72.7%；需要 Exp 1 / Exp 3 的正式多-seed 評估才能判斷差異是否可靠。
+
 ## 查看訓練進度
 
 查看最新 checkpoint：
