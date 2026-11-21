@@ -187,6 +187,26 @@ python train_mini_pacman_policy.py \
 
 訓練程式會在載入 optimizer state 後重新套用 `--learning-rate`，避免 checkpoint 中原本的 `3e-4` 覆蓋第二階段設定。
 
+### Task policy 最終 checkpoint 選擇
+
+第二階段的 `model_1499.pt` 在固定 seeds `10000–10004` 得到 `3/5` 成功、`0/5` 跌倒，因此繼續以 `1e-4` 訓練到 iteration 4999。後段訓練並未繼續改善 deterministic policy：
+
+| Checkpoint | Success | Fell |
+|---|---:|---:|
+| `model_1499.pt` | 3/5 | 0/5 |
+| `model_2200.pt` | 1/5 | 4/5 |
+| `model_2300.pt` | 0/5 | 4/5 |
+| `model_2400.pt` | 0/5 | 2/5 |
+| `model_4999.pt` | 2/5 | 3/5 |
+
+因此 `task` 最終選用：
+
+```text
+outputs/policies/task/20261121_tuned_seed0/model_1499.pt
+```
+
+這也說明 checkpoint 選擇不能只取 iteration 最大者；正式流程必須用固定 evaluation seeds 做 deterministic model selection。
+
 ## 查看訓練進度
 
 查看最新 checkpoint：
