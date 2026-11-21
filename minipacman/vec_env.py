@@ -46,6 +46,7 @@ from tensordict import TensorDict
 
 from .config import Config
 from .dodge_env import ACTION_DIM, DodgeEnv
+from .scene import build_scene
 
 try:
     from rsl_rl.env import VecEnv
@@ -123,6 +124,7 @@ class MiniPacmanVecEnv(VecEnv):
 
         context = mp.get_context("spawn")
         chunks = np.array_split(np.arange(self.num_envs), self.num_workers)
+        scene_path = str(build_scene(cfg=cfg))
         try:
             for indices in chunks:
                 start, stop = int(indices[0]), int(indices[-1]) + 1
@@ -131,6 +133,7 @@ class MiniPacmanVecEnv(VecEnv):
                 for env_index in indices:
                     spec = dict(env_kwargs)
                     spec["seed"] = int(seed) * 100_000 + int(env_index)
+                    spec.setdefault("scene_path", scene_path)
                     specs.append(spec)
                 process = context.Process(
                     target=_worker,

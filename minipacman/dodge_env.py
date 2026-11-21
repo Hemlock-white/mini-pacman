@@ -78,6 +78,8 @@ During training, for the first cfg.obs.single_ball_env_steps policy steps of eac
 """
 from __future__ import annotations
 
+from pathlib import Path
+
 import mujoco
 import numpy as np
 
@@ -180,7 +182,7 @@ def action_to_command(action: np.ndarray, cfg: Config) -> np.ndarray:
 class DodgeEnv:
     def __init__(self, cfg: Config, reward_variant: str = "task", filter_mode: str | None = None,
                  replan: str = "every_step", ball_source: str = "truth", augment_depth: bool = True,
-                 seed: int = 0):
+                 seed: int = 0, scene_path: str | Path | None = None):
         """Create one environment.
 
         reward_variant: "task" / "task_collision" / "task_cbf"
@@ -209,7 +211,8 @@ class DodgeEnv:
         self.augment_depth = bool(augment_depth)
         self.seed = int(seed)
 
-        self.env = TitaEnv(str(build_scene(cfg=cfg)), cfg=cfg)
+        scene_path = build_scene(cfg=cfg) if scene_path is None else Path(scene_path)
+        self.env = TitaEnv(str(scene_path), cfg=cfg)
         self.m, self.d = self.env.m, self.env.d
         self.ids = scene_ids(self.m, cfg)
         self.lqr = LQRBalancer(self.env, cfg, self.ids.robot_nv)
