@@ -87,7 +87,7 @@ outputs/policies/task/20261121_nvidia_seed0/model_4999.pt
 | PPO | `entropy_coef` | `0.001` | 保留少量探索，避免 std 過度增長或完全塌縮 |
 | Reward | `progress_weight` | `10.0` | 強化朝目標移動的 dense signal |
 | Reward | `goal_bonus` | `50.0` | 讓完成任務明顯優於站著不動 |
-| Reward | `collision_penalty` | `200.0` | 一次碰撞必須明顯劣於無碰撞完成任務 |
+| Reward | `collision_penalty` | `100.0` | 50 太弱、200 使策略放棄任務後的折衷值 |
 
 `fall_penalty=200`、`at_goal_weight=0.1` 與 `action_rate_weight=0.05` 保持不變。
 
@@ -220,6 +220,18 @@ outputs/policies/task/20261121_tuned_seed0/model_1499.pt
 | phase 2 `model_1499.pt` | 4/5 | 1/5 | 81.8% |
 
 第二階段提升的是抵達目標的能力，碰撞率反而沒有改善。調高後的 task reward 可超過 +100，`-50` 的單次碰撞懲罰不足以主導策略選擇，因此後續將 `collision_penalty` 提高為 `200`，與跌倒懲罰同級，再重新訓練 `task_collision`。
+
+`collision_penalty=200` 的 500-iteration gate 又走到另一個極端：所有固定-seed checkpoints 都是 `0/5` 成功。雖然部分 checkpoint 的碰撞率下降，但主要原因包含提早跌倒或放棄前進，不能視為成功避球。
+
+| Checkpoint | Success | Fell | Collision rate |
+|---|---:|---:|---:|
+| `model_100.pt` | 0/5 | 5/5 | 50.0% |
+| `model_200.pt` | 0/5 | 1/5 | 84.6% |
+| `model_300.pt` | 0/5 | 2/5 | 72.7% |
+| `model_400.pt` | 0/5 | 3/5 | 100% |
+| `model_499.pt` | 0/5 | 4/5 | 70.0% |
+
+因此下一輪採用中間值 `collision_penalty=100`，並從 penalty-50 階段仍保有任務能力的 `model_200.pt` 開始，以 `1e-4` 做 safety fine-tuning，而不是重新從隨機 policy 開始。
 
 ## 查看訓練進度
 

@@ -19,7 +19,7 @@ def test_make_train_cfg_has_asymmetric_observations(cfg):
     assert train_cfg["algorithm"]["entropy_coef"] == pytest.approx(0.001)
     assert cfg.reward.progress_weight == pytest.approx(10.0)
     assert cfg.reward.goal_bonus == pytest.approx(50.0)
-    assert cfg.reward.collision_penalty == pytest.approx(200.0)
+    assert cfg.reward.collision_penalty == pytest.approx(100.0)
 
 
 def test_train_wires_runner_and_returns_latest_checkpoint(tmp_path, monkeypatch, cfg):
