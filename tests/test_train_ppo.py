@@ -13,6 +13,13 @@ def test_make_train_cfg_has_asymmetric_observations(cfg):
     assert train_cfg["algorithm"]["class_name"] == "rsl_rl.algorithms.PPO"
     assert train_cfg["experiment_name"] == "mini_pacman_task_cbf"
     assert train_cfg["actor"]["hidden_dims"] == list(cfg.ppo.hidden_dims)
+    assert train_cfg["actor"]["distribution_cfg"]["init_std"] == pytest.approx(0.2)
+    assert train_cfg["algorithm"]["learning_rate"] == pytest.approx(3e-4)
+    assert train_cfg["algorithm"]["schedule"] == "fixed"
+    assert train_cfg["algorithm"]["entropy_coef"] == pytest.approx(0.001)
+    assert cfg.reward.progress_weight == pytest.approx(10.0)
+    assert cfg.reward.goal_bonus == pytest.approx(50.0)
+    assert cfg.reward.collision_penalty == pytest.approx(50.0)
 
 
 def test_train_wires_runner_and_returns_latest_checkpoint(tmp_path, monkeypatch, cfg):

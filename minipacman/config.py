@@ -261,10 +261,12 @@ class CBFConfig:
 @dataclass
 class RewardConfig:
     """The three rewards (Exp 1). variant: "task" / "task_collision" / "task_cbf"."""
-    progress_weight: float = 1.0       # distance moved towards the goal each step (m) times this
-    goal_bonus: float = 10.0           # first time the goal is reached
+    # A six-metre run yielded at most +6 progress against a -200 fall, so PPO
+    # converged to standing/spinning.  Keep progress dense and competitive.
+    progress_weight: float = 10.0      # distance moved towards the goal each step (m) times this
+    goal_bonus: float = 50.0           # first time the goal is reached
     at_goal_weight: float = 0.1        # per step while staying at the goal
-    collision_penalty: float = 5.0     # task_collision: penalty per ball that hits
+    collision_penalty: float = 50.0    # task_collision: penalty per ball that hits
     fall_penalty: float = 200.0        # [PAC-MAN] is_terminated -200
     action_rate_weight: float = 0.05   # [PAC-MAN] dodge_action_rate -0.05
     # The weight of the CBF term in task_cbf is CBFConfig.reward_weight
@@ -309,12 +311,18 @@ class PPOConfig:
     hidden_dims: tuple = (512, 256, 128)
     activation: str = "elu"
     obs_normalization: bool = True
-    init_std: float = 1.0
-    learning_rate: float = 1e-3
-    schedule: str = "adaptive"
+    # A unit Gaussian immediately saturates all three normalized commands and made the
+    # robot spin instead of exploring forward motion.  Start locally around the mean.
+    init_std: float = 0.2
+    # Adaptive KL scheduling reached its 1e-5 floor after two iterations in the first
+    # full run.  A conservative fixed rate keeps useful updates going.
+    learning_rate: float = 3e-4
+    schedule: str = "fixed"
     desired_kl: float = 0.01
     clip_param: float = 0.2
-    entropy_coef: float = 0.005
+    # The original 0.005 drove action std past 0.5 and destabilized walking,
+    # while zero entropy collapsed exploration before the policy found the goal.
+    entropy_coef: float = 0.001
     value_loss_coef: float = 1.0
     num_learning_epochs: int = 5
     num_mini_batches: int = 4
