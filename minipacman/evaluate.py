@@ -73,6 +73,26 @@ class ScriptedPolicy:
                 else self.drive_action).copy()
 
 
+class _LoadedPolicy:
+    """Small NumPy-facing wrapper around an rsl_rl actor model."""
+
+    def __init__(self, model, device):
+        self.model = model
+        self.device = device
+
+    def act(self, obs: dict, env=None) -> np.ndarray:
+        import torch
+        from tensordict import TensorDict
+
+        actor = torch.as_tensor(
+            obs["actor"], dtype=torch.float32, device=self.device,
+        ).reshape(1, -1)
+        observation = TensorDict({"actor": actor}, batch_size=[1], device=self.device)
+        with torch.inference_mode():
+            action = self.model(observation)
+        return action.squeeze(0).to(device="cpu").numpy()
+
+
 def load_policy(path: str | Path, cfg: Config, device: str):
     """Load a checkpoint trained by rsl_rl and return a function obs_actor (np.ndarray) -> action (np.ndarray).
 
@@ -86,7 +106,43 @@ def load_policy(path: str | Path, cfg: Config, device: str):
     policy = runner.get_inference_policy(device).
     The device must be the ROCm GPU (course rule: CPU-only results don't count).
     """
-    raise NotImplementedError("TODO: load_policy")
+    import torch
+    from rsl_rl.models import MLPModel
+    from tensordict import TensorDict
+
+    from .dodge_env import ACTION_DIM, obs_layout
+
+    path = Path(path)
+    if not path.is_file():
+        raise FileNotFoundError(f"policy checkpoint does not exist: {path}")
+    torch_device = torch.device(device)
+    actor_dim = max(part.stop for part in obs_layout(cfg)["actor"].values())
+    example = TensorDict(
+        {"actor": torch.zeros((1, actor_dim), device=torch_device)},
+        batch_size=[1],
+        device=torch_device,
+    )
+    ppo = cfg.ppo
+    model = MLPModel(
+        example,
+        {"actor": ["actor"]},
+        "actor",
+        ACTION_DIM,
+        hidden_dims=list(ppo.hidden_dims),
+        activation=ppo.activation,
+        obs_normalization=ppo.obs_normalization,
+        distribution_cfg={
+            "class_name": "rsl_rl.modules.distribution.GaussianDistribution",
+            "init_std": ppo.init_std,
+            "std_type": "scalar",
+        },
+    ).to(torch_device)
+    checkpoint = torch.load(path, map_location=torch_device, weights_only=True)
+    if "actor_state_dict" not in checkpoint:
+        raise ValueError(f"checkpoint has no actor_state_dict: {path}")
+    model.load_state_dict(checkpoint["actor_state_dict"])
+    model.eval()
+    return _LoadedPolicy(model, torch_device)
 
 
 def run_episode(condition: Condition, seed: int, cfg: Config, policy, device: str) -> dict:

@@ -41,6 +41,37 @@ def test_scripted_policy_drives_then_stops(cfg):
     assert drive[2] == stop[2] == -1.0
 
 
+def test_load_policy_is_deterministic(tmp_path, cfg):
+    import torch
+    from rsl_rl.models import MLPModel
+    from tensordict import TensorDict
+
+    from minipacman.dodge_env import ACTION_DIM, obs_layout
+    from minipacman.evaluate import load_policy
+
+    actor_dim = max(part.stop for part in obs_layout(cfg)["actor"].values())
+    example = TensorDict({"actor": torch.zeros(1, actor_dim)}, batch_size=[1])
+    model = MLPModel(
+        example, {"actor": ["actor"]}, "actor", ACTION_DIM,
+        hidden_dims=list(cfg.ppo.hidden_dims), activation=cfg.ppo.activation,
+        obs_normalization=cfg.ppo.obs_normalization,
+        distribution_cfg={
+            "class_name": "rsl_rl.modules.distribution.GaussianDistribution",
+            "init_std": cfg.ppo.init_std,
+            "std_type": "scalar",
+        },
+    )
+    path = tmp_path / "model_1.pt"
+    torch.save({"actor_state_dict": model.state_dict()}, path)
+    policy = load_policy(path, cfg, "cpu")
+    observation = {"actor": np.zeros(actor_dim, dtype=np.float32)}
+    first = policy.act(observation)
+    second = policy.act(observation)
+    assert first.shape == (ACTION_DIM,)
+    assert np.all(np.isfinite(first))
+    np.testing.assert_array_equal(first, second)
+
+
 @need_tita
 def test_run_scripted_episode(cfg):
     from minipacman.evaluate import run_episode
