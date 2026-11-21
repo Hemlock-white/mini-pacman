@@ -35,9 +35,17 @@ Suggested structure
 """
 from __future__ import annotations
 
+import math
+import multiprocessing as mp
+import os
+import traceback
+
 import numpy as np
+import torch
+from tensordict import TensorDict
 
 from .config import Config
+from .dodge_env import ACTION_DIM, DodgeEnv
 
 try:
     from rsl_rl.env import VecEnv
@@ -45,18 +53,212 @@ except ImportError:          # so other modules can still be imported before rsl
     VecEnv = object
 
 
+def _worker(conn, cfg: Config, reward_variant: str, env_specs: list[dict]) -> None:
+    """Own a small group of MuJoCo environments in one subprocess."""
+    try:
+        envs = [DodgeEnv(cfg, reward_variant=reward_variant, **spec) for spec in env_specs]
+        observations = [env.reset() for env in envs]
+        while True:
+            command, payload = conn.recv()
+            if command == "observations":
+                conn.send(("ok", observations))
+            elif command == "step":
+                batch = []
+                for env, action in zip(envs, payload):
+                    observation, reward, terminated, truncated, info = env.step(action)
+                    done = bool(terminated or truncated)
+                    summary = info.get("episode") if done else None
+                    if done:
+                        observation = env.reset()
+                    batch.append((
+                        observation,
+                        float(reward),
+                        done,
+                        bool(truncated and not terminated),
+                        summary,
+                    ))
+                observations = [item[0] for item in batch]
+                conn.send(("ok", batch))
+            elif command == "close":
+                conn.send(("ok", None))
+                break
+            else:
+                raise ValueError(f"unknown worker command: {command!r}")
+    except (EOFError, BrokenPipeError):
+        pass
+    except BaseException:
+        try:
+            conn.send(("error", traceback.format_exc()))
+        except (EOFError, BrokenPipeError):
+            pass
+    finally:
+        conn.close()
+
+
 class MiniPacmanVecEnv(VecEnv):
     def __init__(self, cfg: Config, reward_variant: str, num_envs: int, num_workers: int = 0,
                  device: str = "cpu", seed: int = 0, **env_kwargs):
         """env_kwargs are passed to every DodgeEnv (e.g. filter_mode, ball_source, augment_depth).
         num_workers=0: use max(1, os.cpu_count() - 2) automatically."""
-        raise NotImplementedError("TODO: MiniPacmanVecEnv.__init__")
+        if num_envs < 1:
+            raise ValueError("num_envs must be at least 1")
+        if num_workers < 0:
+            raise ValueError("num_workers cannot be negative")
+
+        self.cfg = cfg
+        self.num_envs = int(num_envs)
+        automatic_workers = max(1, (os.cpu_count() or 1) - 2)
+        self.num_workers = min(self.num_envs, num_workers or automatic_workers)
+        self.num_actions = ACTION_DIM
+        self.device = torch.device(device)
+        policy_dt = cfg.sim.timestep * cfg.sim.policy_every
+        self.max_episode_length = int(math.ceil(cfg.sim.episode_seconds / policy_dt))
+        self.episode_length_buf = torch.zeros(
+            self.num_envs, dtype=torch.long, device=self.device,
+        )
+        self._closed = False
+        self._processes = []
+        self._connections = []
+        self._slices = []
+
+        context = mp.get_context("spawn")
+        chunks = np.array_split(np.arange(self.num_envs), self.num_workers)
+        try:
+            for indices in chunks:
+                start, stop = int(indices[0]), int(indices[-1]) + 1
+                parent, child = context.Pipe()
+                specs = []
+                for env_index in indices:
+                    spec = dict(env_kwargs)
+                    spec["seed"] = int(seed) * 100_000 + int(env_index)
+                    specs.append(spec)
+                process = context.Process(
+                    target=_worker,
+                    args=(child, cfg, reward_variant, specs),
+                    daemon=True,
+                )
+                process.start()
+                child.close()
+                self._connections.append(parent)
+                self._processes.append(process)
+                self._slices.append(slice(start, stop))
+            self._observations = self._request_observations()
+        except BaseException:
+            self.close()
+            raise
 
     def get_observations(self):
-        raise NotImplementedError
+        return self._to_tensordict(self._observations)
 
     def step(self, actions):
-        raise NotImplementedError
+        if self._closed:
+            raise RuntimeError("MiniPacmanVecEnv is closed")
+        if not isinstance(actions, torch.Tensor):
+            actions = torch.as_tensor(actions, dtype=torch.float32)
+        if tuple(actions.shape) != (self.num_envs, self.num_actions):
+            raise ValueError(
+                f"actions must have shape ({self.num_envs}, {self.num_actions}), "
+                f"got {tuple(actions.shape)}",
+            )
+        if not bool(torch.isfinite(actions).all()):
+            raise ValueError("actions must contain only finite values")
+        actions_np = actions.detach().to(device="cpu", dtype=torch.float32).numpy()
+        for conn, env_slice in zip(self._connections, self._slices):
+            conn.send(("step", actions_np[env_slice]))
+
+        observations = []
+        rewards = []
+        dones = []
+        time_outs = []
+        summaries = []
+        for conn in self._connections:
+            batch = self._receive(conn)
+            for observation, reward, done, time_out, summary in batch:
+                observations.append(observation)
+                rewards.append(reward)
+                dones.append(done)
+                time_outs.append(time_out)
+                if summary is not None:
+                    summaries.append(summary)
+
+        self._observations = observations
+        reward_tensor = torch.as_tensor(rewards, dtype=torch.float32, device=self.device)
+        done_tensor = torch.as_tensor(dones, dtype=torch.bool, device=self.device)
+        timeout_tensor = torch.as_tensor(time_outs, dtype=torch.bool, device=self.device)
+        self.episode_length_buf += 1
+        self.episode_length_buf[done_tensor] = 0
+        extras = {"time_outs": timeout_tensor}
+        log = self._episode_log(summaries)
+        if log:
+            extras["log"] = log
+        return self.get_observations(), reward_tensor, done_tensor, extras
 
     def close(self) -> None:
-        raise NotImplementedError
+        if self._closed:
+            return
+        self._closed = True
+        for conn, process in zip(self._connections, self._processes):
+            if process.is_alive():
+                try:
+                    conn.send(("close", None))
+                except (EOFError, BrokenPipeError, OSError):
+                    pass
+        for conn, process in zip(self._connections, self._processes):
+            if process.is_alive():
+                try:
+                    self._receive(conn)
+                except (EOFError, BrokenPipeError, RuntimeError):
+                    pass
+            process.join(timeout=5.0)
+            if process.is_alive():
+                process.terminate()
+                process.join(timeout=1.0)
+            conn.close()
+
+    def _request_observations(self) -> list[dict[str, np.ndarray]]:
+        for conn in self._connections:
+            conn.send(("observations", None))
+        observations = []
+        for conn in self._connections:
+            observations.extend(self._receive(conn))
+        return observations
+
+    def _receive(self, conn):
+        status, payload = conn.recv()
+        if status == "error":
+            raise RuntimeError(f"MiniPacmanVecEnv worker failed:\n{payload}")
+        return payload
+
+    def _to_tensordict(self, observations: list[dict[str, np.ndarray]]) -> TensorDict:
+        data = {
+            key: torch.as_tensor(
+                np.stack([observation[key] for observation in observations]),
+                dtype=torch.float32,
+                device=self.device,
+            )
+            for key in ("actor", "critic")
+        }
+        return TensorDict(data, batch_size=[self.num_envs], device=self.device)
+
+    @staticmethod
+    def _episode_log(summaries: list[dict]) -> dict[str, float]:
+        if not summaries:
+            return {}
+        thrown = sum(summary["n_thrown"] for summary in summaries)
+        hits = sum(summary["n_hit"] for summary in summaries)
+        goal_times = [summary["t_goal"] for summary in summaries if summary["t_goal"] is not None]
+        log = {
+            "/episode/success_rate": float(np.mean([summary["success"] for summary in summaries])),
+            "/episode/fall_rate": float(np.mean([summary["fell"] for summary in summaries])),
+            "/episode/collision_rate": hits / max(thrown, 1),
+            "/episode/seconds": float(np.mean([summary["episode_seconds"] for summary in summaries])),
+        }
+        if goal_times:
+            log["/episode/time_to_goal"] = float(np.mean(goal_times))
+        interventions = [
+            summary["intervention_mean"] for summary in summaries
+            if summary["intervention_mean"] is not None
+        ]
+        if interventions:
+            log["/episode/intervention_mean"] = float(np.mean(interventions))
+        return log

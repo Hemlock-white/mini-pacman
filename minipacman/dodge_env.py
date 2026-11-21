@@ -255,7 +255,7 @@ class DodgeEnv:
         """
         if seed is not None:
             self.seed = int(seed)
-        self._reset_rngs(self.seed)
+            self._reset_rngs(self.seed)
         stand = self.lqr.leg_poses["stand"]
         self.env.reset(*stand)
         initial = self.env.planar_state(0.0)

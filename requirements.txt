@@ -1,0 +1,15 @@
+--extra-index-url https://download.pytorch.org/whl/cu128
+
+matplotlib>=3.10
+mujoco>=3.3
+numpy>=2.2,<3
+PyYAML>=6.0
+scipy>=1.15
+
+# Keep these aligned with the NVIDIA CUDA 12.8 environment used by this project.
+torch==2.7.1+cu128
+torchvision==0.22.1+cu128
+tensordict==0.8.3
+rsl-rl-lib==5.4.0
+
+pytest>=9.0

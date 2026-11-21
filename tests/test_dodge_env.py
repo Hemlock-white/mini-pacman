@@ -152,6 +152,36 @@ def test_obs_shapes(cfg, use_true_state):
     assert {"u_policy", "u_safe", "intervention", "filter_active", "new_hits"} <= info.keys()
 
 
-@pytest.mark.skip(reason="TODO: implement MiniPacmanVecEnv in vec_env.py")
+@need_tita
 def test_vec_env_autoreset(cfg):
     """MiniPacmanVecEnv resets automatically and reports timeouts separately."""
+    import torch
+
+    from minipacman.vec_env import MiniPacmanVecEnv
+
+    cfg.sim.episode_seconds = 2 * cfg.sim.timestep * cfg.sim.policy_every
+    cfg.balls.first_throw_range = (10.0, 10.0)
+    env = MiniPacmanVecEnv(
+        cfg, "task", num_envs=3, num_workers=2, device="cpu",
+        seed=7, augment_depth=False,
+    )
+    try:
+        observation = env.get_observations()
+        assert observation.batch_size == torch.Size([3])
+        assert observation["actor"].shape == (3, 589)
+        assert observation["critic"].shape == (3, 632)
+        actions = torch.as_tensor(np.stack([_speed_action(0.0, cfg)] * 3), dtype=torch.float32)
+        _, _, first_done, first_extras = env.step(actions)
+        assert not first_done.any()
+        assert not first_extras["time_outs"].any()
+        observation, rewards, dones, extras = env.step(actions)
+        assert dones.tolist() == [True, True, True]
+        assert extras["time_outs"].tolist() == [True, True, True]
+        assert env.episode_length_buf.tolist() == [0, 0, 0]
+        assert rewards.shape == (3,)
+        assert torch.isfinite(rewards).all()
+        assert observation["actor"].shape == (3, 589)
+        assert "/episode/success_rate" in extras["log"]
+    finally:
+        env.close()
+        env.close()
