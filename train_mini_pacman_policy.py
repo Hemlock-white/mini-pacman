@@ -29,12 +29,18 @@ def main() -> None:
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--iterations", type=int, default=None, help=f"default {cfg.ppo.max_iterations}")
     ap.add_argument("--num-envs", type=int, default=None, help=f"default {cfg.ppo.num_envs}")
+    ap.add_argument("--learning-rate", type=float, default=None,
+                    help=f"override PPO learning rate (default {cfg.ppo.learning_rate})")
     ap.add_argument("--device", default=None, help="default: cuda:0 if there is a GPU (ROCm is also called cuda)")
     ap.add_argument("--resume", type=Path, default=None)
     ap.add_argument("--quick", action="store_true", help="2 iterations, 8 environments, just to check it runs")
     ap.add_argument("--out", type=Path, default=None)
     args = ap.parse_args()
 
+    if args.learning_rate is not None:
+        if args.learning_rate <= 0:
+            ap.error("--learning-rate must be positive")
+        cfg.ppo.learning_rate = args.learning_rate
     if args.quick:
         args.iterations, args.num_envs = 2, 8
     device = pick_device(args.device)

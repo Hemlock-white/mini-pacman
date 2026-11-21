@@ -40,7 +40,12 @@ def test_train_wires_runner_and_returns_latest_checkpoint(tmp_path, monkeypatch,
     class FakeRunner:
         def __init__(self, env, train_cfg, log_dir, device):
             calls["runner"] = (env, train_cfg, log_dir, device)
+            calls["runner_instance"] = self
             self.log_dir = Path(log_dir)
+            self.alg = type("FakeAlg", (), {
+                "learning_rate": 9e-3,
+                "optimizer": type("FakeOptimizer", (), {"param_groups": [{"lr": 9e-3}]})(),
+            })()
 
         def learn(self, num_learning_iterations):
             calls["iterations"] = num_learning_iterations
@@ -52,14 +57,21 @@ def test_train_wires_runner_and_returns_latest_checkpoint(tmp_path, monkeypatch,
 
     monkeypatch.setattr(minipacman.vec_env, "MiniPacmanVecEnv", FakeEnv)
     monkeypatch.setattr(rsl_rl.runners, "OnPolicyRunner", FakeRunner)
+    resume = tmp_path / "resume.pt"
+    resume.write_bytes(b"checkpoint")
     checkpoint = train(
         cfg, "task", seed=3, log_dir=tmp_path, device="cpu",
-        max_iterations=4, num_envs=6,
+        max_iterations=4, num_envs=6, resume=resume,
     )
     assert checkpoint == tmp_path / "model_10.pt"
     assert calls["iterations"] == 4
     assert calls["env"][0][2] == 6
     assert calls["runner"][0].closed
+    assert calls["resume"] == (str(resume), "cpu")
+    assert calls["runner_instance"].alg.learning_rate == pytest.approx(cfg.ppo.learning_rate)
+    assert calls["runner_instance"].alg.optimizer.param_groups[0]["lr"] == pytest.approx(
+        cfg.ppo.learning_rate,
+    )
 
 
 def test_train_rejects_invalid_arguments(tmp_path, cfg):

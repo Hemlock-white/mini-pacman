@@ -137,6 +137,11 @@ def train(cfg: Config, reward_variant: str, seed: int, log_dir: Path, device: st
             if not resume.is_file():
                 raise FileNotFoundError(f"checkpoint does not exist: {resume}")
             runner.load(str(resume), map_location=device)
+            # rsl_rl restores the optimizer param groups, including the old LR.
+            # Reapply the current config so a staged resume can intentionally lower it.
+            runner.alg.learning_rate = cfg.ppo.learning_rate
+            for param_group in runner.alg.optimizer.param_groups:
+                param_group["lr"] = cfg.ppo.learning_rate
         runner.learn(num_learning_iterations=iterations)
     finally:
         env.close()

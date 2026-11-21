@@ -159,6 +159,34 @@ python train_mini_pacman_policy.py \
 
 建議先讓新的 `task` policy 跑到 300–500 iterations，使用固定 evaluation seeds 做一次 deterministic gate。只有 success rate 與 fall rate 正常，才繼續完整 5,000 iterations 與另外兩個 reward variants。
 
+### Seed 0 的 500-iteration gate
+
+固定 seeds `10000–10004` 的 checkpoint 比較：
+
+| Checkpoint | Success | Fell | 結論 |
+|---|---:|---:|---|
+| `model_100.pt` | 0/5 | 1/5 | 不採用 |
+| `model_200.pt` | 0/5 | 4/5 | 不採用 |
+| `model_300.pt` | 0/5 | 3/5 | 不採用 |
+| `model_400.pt` | 0/5 | 0/5 | 穩定但沒有到達目標 |
+| `model_499.pt` | 2/5 | 0/5 | 五者最佳，作為第二階段起點 |
+
+`model_499.pt` 的成功回合平均到達時間約為 14.88 秒。它尚未達到正式 gate 標準，因此先把 learning rate 降為 `1e-4`，接續到約 iteration 1500：
+
+```bash
+python train_mini_pacman_policy.py \
+  --reward task \
+  --seed 0 \
+  --iterations 1001 \
+  --num-envs 256 \
+  --learning-rate 1e-4 \
+  --device cuda:0 \
+  --resume outputs/policies/task/20261121_tuned_seed0/model_499.pt \
+  --out outputs/policies/task/20261121_tuned_seed0
+```
+
+訓練程式會在載入 optimizer state 後重新套用 `--learning-rate`，避免 checkpoint 中原本的 `3e-4` 覆蓋第二階段設定。
+
 ## 查看訓練進度
 
 查看最新 checkpoint：
