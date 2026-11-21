@@ -266,7 +266,9 @@ class RewardConfig:
     progress_weight: float = 10.0      # distance moved towards the goal each step (m) times this
     goal_bonus: float = 50.0           # first time the goal is reached
     at_goal_weight: float = 0.1        # per step while staying at the goal
-    collision_penalty: float = 50.0    # task_collision: penalty per ball that hits
+    # A successful run can now earn over +100; make one hit unambiguously worse
+    # than completing the task without learning to dodge.
+    collision_penalty: float = 200.0   # task_collision: penalty per ball that hits
     fall_penalty: float = 200.0        # [PAC-MAN] is_terminated -200
     action_rate_weight: float = 0.05   # [PAC-MAN] dodge_action_rate -0.05
     # The weight of the CBF term in task_cbf is CBFConfig.reward_weight

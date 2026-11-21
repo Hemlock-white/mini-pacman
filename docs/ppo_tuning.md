@@ -87,7 +87,7 @@ outputs/policies/task/20261121_nvidia_seed0/model_4999.pt
 | PPO | `entropy_coef` | `0.001` | 保留少量探索，避免 std 過度增長或完全塌縮 |
 | Reward | `progress_weight` | `10.0` | 強化朝目標移動的 dense signal |
 | Reward | `goal_bonus` | `50.0` | 讓完成任務明顯優於站著不動 |
-| Reward | `collision_penalty` | `50.0` | task reward 變強後，維持碰撞懲罰的重要性 |
+| Reward | `collision_penalty` | `200.0` | 一次碰撞必須明顯劣於無碰撞完成任務 |
 
 `fall_penalty=200`、`at_goal_weight=0.1` 與 `action_rate_weight=0.05` 保持不變。
 
@@ -206,6 +206,20 @@ outputs/policies/task/20261121_tuned_seed0/model_1499.pt
 ```
 
 這也說明 checkpoint 選擇不能只取 iteration 最大者；正式流程必須用固定 evaluation seeds 做 deterministic model selection。
+
+### Task-collision 第一輪結果
+
+`collision_penalty=50` 時，第一階段與低 learning-rate 第二階段都沒有真正學會避球：
+
+| Checkpoint | Success | Fell | Collision rate |
+|---|---:|---:|---:|
+| phase 1 `model_200.pt` | 2/5 | 1/5 | 69.2% |
+| phase 2 `model_1100.pt` | 1/5 | 1/5 | 90.9% |
+| phase 2 `model_1200.pt` | 1/5 | 1/5 | 100% |
+| phase 2 `model_1300.pt` | 1/5 | 1/5 | 91.7% |
+| phase 2 `model_1499.pt` | 4/5 | 1/5 | 81.8% |
+
+第二階段提升的是抵達目標的能力，碰撞率反而沒有改善。調高後的 task reward 可超過 +100，`-50` 的單次碰撞懲罰不足以主導策略選擇，因此後續將 `collision_penalty` 提高為 `200`，與跌倒懲罰同級，再重新訓練 `task_collision`。
 
 ## 查看訓練進度
 
