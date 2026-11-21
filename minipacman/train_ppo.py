@@ -37,6 +37,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import numpy as np
+import torch
+
 from .config import Config
 
 
@@ -95,4 +98,57 @@ def train(cfg: Config, reward_variant: str, seed: int, log_dir: Path, device: st
 
     Note: the runner modifies the make_train_cfg dict (it pops class_name), so call make_train_cfg again every time.
     """
-    raise NotImplementedError("TODO: train (see docstring)")
+    if reward_variant not in cfg.exp.reward_variants:
+        raise ValueError(f"unknown reward variant: {reward_variant!r}")
+    iterations = cfg.ppo.max_iterations if max_iterations is None else int(max_iterations)
+    environment_count = cfg.ppo.num_envs if num_envs is None else int(num_envs)
+    if iterations < 1:
+        raise ValueError("max_iterations must be at least 1")
+    if environment_count < 1:
+        raise ValueError("num_envs must be at least 1")
+
+    from rsl_rl.runners import OnPolicyRunner
+
+    from .vec_env import MiniPacmanVecEnv
+
+    torch.manual_seed(seed)
+    np.random.seed(seed)
+    log_dir = Path(log_dir)
+    log_dir.mkdir(parents=True, exist_ok=True)
+    env = MiniPacmanVecEnv(
+        cfg,
+        reward_variant,
+        environment_count,
+        cfg.ppo.num_workers,
+        device,
+        seed,
+        filter_mode=None,
+        augment_depth=True,
+    )
+    try:
+        runner = OnPolicyRunner(
+            env,
+            make_train_cfg(cfg, reward_variant),
+            str(log_dir),
+            device,
+        )
+        if resume is not None:
+            resume = Path(resume)
+            if not resume.is_file():
+                raise FileNotFoundError(f"checkpoint does not exist: {resume}")
+            runner.load(str(resume), map_location=device)
+        runner.learn(num_learning_iterations=iterations)
+    finally:
+        env.close()
+
+    checkpoints = list(log_dir.glob("model_*.pt"))
+    if not checkpoints:
+        raise RuntimeError(f"training finished without a checkpoint in {log_dir}")
+
+    def iteration(path: Path) -> int:
+        try:
+            return int(path.stem.rsplit("_", 1)[1])
+        except (IndexError, ValueError):
+            return -1
+
+    return max(checkpoints, key=iteration)
