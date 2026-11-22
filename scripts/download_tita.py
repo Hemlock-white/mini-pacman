@@ -16,6 +16,7 @@ Run them with subprocess.run([...], check=True). If it's already downloaded (<ta
 exists), just exit. At the end print the model path and check that robot.xml exists.
 Bonus: use sparse checkout to download only urdfs/tita_description (git sparse-checkout set <subdir>); it's faster.
 """
+import subprocess
 import sys
 from pathlib import Path
 
@@ -26,7 +27,16 @@ from minipacman.config import TitaSource  # noqa: E402
 
 def main() -> None:
     src = TitaSource()
-    raise NotImplementedError("TODO: download_tita.py (see the docstring at the top)")
+    robot_xml = src.target_dir / src.subdir / "mujoco" / "robot.xml"
+    if not robot_xml.is_file():
+        src.target_dir.parent.mkdir(parents=True, exist_ok=True)
+        subprocess.run(["git", "init", str(src.target_dir)], check=True)
+        git = ["git", "-C", str(src.target_dir)]
+        subprocess.run([*git, "fetch", "--depth", "1", src.repo_url, src.commit], check=True)
+        subprocess.run([*git, "checkout", "--detach", "FETCH_HEAD"], check=True)
+    if not robot_xml.is_file():
+        raise FileNotFoundError(robot_xml)
+    print(robot_xml)
 
 
 if __name__ == "__main__":

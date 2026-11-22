@@ -1,0 +1,15 @@
+# AMD Ryzen gfx1151 on Linux x86_64 with Python 3.12.
+# Official AMD ROCm 7.2.1 wheels for Ryzen APUs.
+torch @ https://repo.radeon.com/rocm/manylinux/rocm-rel-7.2.1/torch-2.9.1%2Brocm7.2.1.lw.gitff65f5bc-cp312-cp312-linux_x86_64.whl
+torchvision @ https://repo.radeon.com/rocm/manylinux/rocm-rel-7.2.1/torchvision-0.24.0%2Brocm7.2.1.gitb919bd0c-cp312-cp312-linux_x86_64.whl
+triton @ https://repo.radeon.com/rocm/manylinux/rocm-rel-7.2.1/triton-3.5.1%2Brocm7.2.1.gita272dfa8-cp312-cp312-linux_x86_64.whl
+
+matplotlib>=3.10
+mujoco>=3.3
+numpy>=2.2,<3
+Pillow>=10.1
+PyYAML>=6.0
+scipy>=1.15
+tensordict==0.8.3
+rsl-rl-lib==5.4.0
+pytest>=9.0
