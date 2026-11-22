@@ -1,5 +1,6 @@
 """report.py and the Exp 3 flow (with fake episode results; no policy or environment needed)."""
 import argparse
+import csv
 import importlib
 
 import numpy as np
@@ -121,3 +122,29 @@ def test_part_exp2_flow(tmp_path, monkeypatch, cfg):
     assert (tmp_path / "exp2" / "summary.csv").exists()
     assert (tmp_path / "exp2" / "exp2_collision_rate.png").exists()
     assert (tmp_path / "exp2" / "exp2_collision_by_height.png").exists()
+
+
+def test_part_summary_restores_condition_metadata(tmp_path, monkeypatch, cfg):
+    """Summary rebuilds metadata that is intentionally absent from the episode JSONL schema."""
+    run = importlib.import_module("run_mini_pacman_experiments")
+    rng = np.random.default_rng(30)
+    for reward_variant in cfg.exp.reward_variants:
+        monkeypatch.setitem(run.POLICY_FILES, reward_variant, f"missing/{reward_variant}.pt")
+        for suffix in ("nofilter", "filter"):
+            condition = f"exp1_{reward_variant}_{suffix}"
+            episodes = [_fake_episode(rng, 0.3, seed, condition) for seed in range(5)]
+            report.save_jsonl(episodes, tmp_path / "exp1" / f"{condition}.jsonl")
+
+    args = argparse.Namespace(device="cpu")
+    run.part_summary(cfg, args, tmp_path)
+
+    with open(tmp_path / "exp1" / "summary.csv", newline="", encoding="utf-8") as file:
+        rows = list(csv.DictReader(file))
+    assert [row["reward_variant"] for row in rows] == [
+        reward for reward in cfg.exp.reward_variants for _ in range(2)
+    ]
+    assert [row["filter_mode"] for row in rows] == [
+        mode for _ in cfg.exp.reward_variants for mode in ("", cfg.exp.exp1_filter_mode)
+    ]
+    assert (tmp_path / "exp1" / "exp1_collision_rate.png").exists()
+    assert (tmp_path / "exp1" / "exp1_success_intervention.png").exists()

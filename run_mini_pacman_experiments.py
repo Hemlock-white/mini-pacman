@@ -53,13 +53,71 @@ def eval_seeds(cfg: Config, args) -> list[int]:
     return list(range(cfg.exp.eval_seed_offset, cfg.exp.eval_seed_offset + n))
 
 
-def policy_path(reward_variant: str) -> str:
+def policy_path(reward_variant: str, *, require_exists: bool = True) -> str:
     path = REPO_ROOT / POLICY_FILES[reward_variant]
-    if not path.exists():
+    if require_exists and not path.exists():
         raise SystemExit(f"Cannot find the {reward_variant} policy: {path}\n"
                          f"Train it first (python train_mini_pacman_policy.py --reward {reward_variant}), "
                          f"then put the path in POLICY_FILES in run_mini_pacman_experiments.py.")
     return str(path)
+
+
+def exp1_conditions(cfg: Config, *, require_policies: bool = True) -> list[Condition]:
+    """Build Exp 1 conditions in their canonical reporting order."""
+    return [
+        Condition(
+            name=f"exp1_{reward_variant}_{'filter' if filter_mode else 'nofilter'}",
+            policy=policy_path(reward_variant, require_exists=require_policies),
+            reward_variant=reward_variant,
+            filter_mode=filter_mode,
+            replan="every_step",
+            ball_source=cfg.exp.exp1_filter_source,
+        )
+        for reward_variant in cfg.exp.reward_variants
+        for filter_mode in (None, cfg.exp.exp1_filter_mode)
+    ]
+
+
+def exp2_conditions(cfg: Config) -> list[Condition]:
+    """Build Exp 2 conditions in their canonical reporting order."""
+    include_replan = len(cfg.exp.exp2_replan) > 1
+    return [
+        Condition(
+            name=f"exp2_{filter_mode}{f'_{replan}' if include_replan else ''}",
+            policy=cfg.exp.exp2_policy,
+            reward_variant="scripted",
+            filter_mode=filter_mode,
+            replan=replan,
+            ball_source="truth",
+        )
+        for filter_mode in cfg.exp.exp2_filters
+        for replan in cfg.exp.exp2_replan
+    ]
+
+
+def exp3_conditions(cfg: Config, *, require_policies: bool = True) -> list[Condition]:
+    """Build Exp 3 conditions in their canonical reporting order."""
+    reward_variant = cfg.exp.exp3_reward_variant
+    policy = policy_path(reward_variant, require_exists=require_policies)
+    return [
+        Condition(
+            name="exp3_no_filter",
+            policy=policy,
+            reward_variant=reward_variant,
+            filter_mode=None,
+            ball_source="truth",
+        ),
+        *[
+            Condition(
+                name=f"exp3_{source}",
+                policy=policy,
+                reward_variant=reward_variant,
+                filter_mode=cfg.exp.exp3_filter_mode,
+                ball_source=source,
+            )
+            for source in cfg.exp.exp3_sources
+        ],
+    ]
 
 
 def run_conditions(conditions: list[Condition], exp_dir: Path, cfg: Config, args) -> list[dict]:
@@ -151,17 +209,7 @@ def part_exp1(cfg: Config, args, out_root: Path) -> list[dict]:
       3. report.print_table(rows); try: report.plot_exp1(rows, out_root / "exp1")
       4. return rows
     """
-    conditions = []
-    for reward_variant in cfg.exp.reward_variants:
-        for filter_mode in (None, cfg.exp.exp1_filter_mode):
-            conditions.append(Condition(
-                name=f"exp1_{reward_variant}_{'filter' if filter_mode else 'nofilter'}",
-                policy=policy_path(reward_variant),
-                reward_variant=reward_variant,
-                filter_mode=filter_mode,
-                replan="every_step",
-                ball_source=cfg.exp.exp1_filter_source,
-            ))
+    conditions = exp1_conditions(cfg)
     exp_dir = out_root / "exp1"
     rows = run_conditions(conditions, exp_dir, cfg, args)
     report.print_table(rows)
@@ -179,19 +227,7 @@ def part_exp2(cfg: Config, args, out_root: Path) -> list[dict]:
     (exp2_replan is just ("every_step",)), e.g. name=f"exp2_{fm}". Ball info from "truth".
     Otherwise the same as part_exp1; plot with report.plot_exp2.
     """
-    conditions = []
-    include_replan = len(cfg.exp.exp2_replan) > 1
-    for filter_mode in cfg.exp.exp2_filters:
-        for replan in cfg.exp.exp2_replan:
-            suffix = f"_{replan}" if include_replan else ""
-            conditions.append(Condition(
-                name=f"exp2_{filter_mode}{suffix}",
-                policy=cfg.exp.exp2_policy,
-                reward_variant="scripted",
-                filter_mode=filter_mode,
-                replan=replan,
-                ball_source="truth",
-            ))
+    conditions = exp2_conditions(cfg)
     exp_dir = out_root / "exp2"
     rows = run_conditions(conditions, exp_dir, cfg, args)
     report.print_table(rows)
@@ -202,13 +238,7 @@ def part_exp2(cfg: Config, args, out_root: Path) -> list[dict]:
 
 def part_exp3(cfg: Config, args, out_root: Path) -> list[dict]:
     """Exp 3: ball information source (truth / noise and latency / depth camera estimate), plus a filter-off reference."""
-    rv = cfg.exp.exp3_reward_variant
-    pol = policy_path(rv)
-    conditions = [Condition(name="exp3_no_filter", policy=pol, reward_variant=rv, filter_mode=None,
-                            ball_source="truth")]
-    for src in cfg.exp.exp3_sources:
-        conditions.append(Condition(name=f"exp3_{src}", policy=pol, reward_variant=rv,
-                                    filter_mode=cfg.exp.exp3_filter_mode, ball_source=src))
+    conditions = exp3_conditions(cfg)
     exp_dir = out_root / "exp3"
     rows = run_conditions(conditions, exp_dir, cfg, args)
     report.print_table(rows)
@@ -220,14 +250,30 @@ def part_exp3(cfg: Config, args, out_root: Path) -> list[dict]:
 def part_summary(cfg: Config, args, out_root: Path) -> None:
     """Read the .jsonl files in each experiment folder, recompute the statistics, print tables, make plots."""
     plots = {"exp1": report.plot_exp1, "exp2": report.plot_exp2, "exp3": report.plot_exp3}
+    conditions = {
+        "exp1": exp1_conditions(cfg, require_policies=False),
+        "exp2": exp2_conditions(cfg),
+        "exp3": exp3_conditions(cfg, require_policies=False),
+    }
     for exp, plot in plots.items():
         exp_dir = out_root / exp
-        files = sorted(exp_dir.glob("*.jsonl"))
+        files = {path.stem: path for path in exp_dir.glob("*.jsonl")}
         if not files:
             print(f"== {exp}: no results yet")
             continue
-        rows = [{"condition": f.stem, **report.summarize(report.load_jsonl(f), cfg.exp.height_buckets)}
-                for f in files]
+        expected = {condition.name: condition for condition in conditions[exp]}
+        unknown = sorted(set(files) - set(expected))
+        if unknown:
+            raise ValueError(f"unknown {exp} condition files (metadata unavailable): {unknown}")
+        rows = [
+            {
+                "condition": condition.name,
+                **condition.to_dict(),
+                **report.summarize(report.load_jsonl(files[condition.name]), cfg.exp.height_buckets),
+            }
+            for condition in conditions[exp]
+            if condition.name in files
+        ]
         print(f"== {exp}")
         report.print_table(rows)
         report.write_csv(rows, exp_dir / "summary.csv")
