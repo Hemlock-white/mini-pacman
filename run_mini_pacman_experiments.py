@@ -7,6 +7,7 @@ Usage:
     python run_mini_pacman_experiments.py --part all --quick            # only a few seeds per group, to check the whole flow
     python run_mini_pacman_experiments.py --part exp3 --force           # rerun even if results exist
     python run_mini_pacman_experiments.py --part exp2 --seeds 20        # custom number of seeds
+    python run_mini_pacman_experiments.py --part exp3 --quick --record-video --video-seeds 10090
 
 **Which policy files to use: edit POLICY_FILES below** (paths relative to the repo root).
 
@@ -19,11 +20,13 @@ Experiments
     summary  read all results, print tables, make plots
 
 Results go to outputs/results/<exp>/: one .jsonl per condition (one line per episode), summary.csv, plots.
+With --record-video, selected seeds are rerun and comparison MP4s go to <out>/<exp>/videos/.
 The GPU, versions and parameters of every run are logged in outputs/results/run_info.jsonl.
 Course rule: results in the report must be produced on AMD ROCm; otherwise a warning is printed and the log says rocm=false.
 """
 import argparse
 import json
+import os
 import time
 import traceback
 from pathlib import Path
@@ -137,6 +140,27 @@ def run_conditions(conditions: list[Condition], exp_dir: Path, cfg: Config, args
     return rows
 
 
+def record_videos_if_requested(
+    experiment: str, conditions: list[Condition], exp_dir: Path, cfg: Config, args,
+) -> list[Path]:
+    """Rerun only the explicitly selected seeds and record comparison videos."""
+    if not getattr(args, "record_video", False):
+        return []
+    from minipacman.video import record_experiment_videos
+
+    paths = record_experiment_videos(
+        experiment,
+        conditions,
+        list(args.video_seeds),
+        cfg,
+        exp_dir / "videos",
+        device=args.device,
+        fps=args.video_fps,
+    )
+    print(f"  videos: {exp_dir}/videos/*.mp4")
+    return paths
+
+
 # ============================================================================================
 # Parts
 # ============================================================================================
@@ -215,6 +239,7 @@ def part_exp1(cfg: Config, args, out_root: Path) -> list[dict]:
     report.print_table(rows)
     report.plot_exp1(rows, exp_dir)
     print(f"  plots: {exp_dir}/exp1_*.png")
+    record_videos_if_requested("exp1", conditions, exp_dir, cfg, args)
     return rows
 
 
@@ -233,6 +258,7 @@ def part_exp2(cfg: Config, args, out_root: Path) -> list[dict]:
     report.print_table(rows)
     report.plot_exp2(rows, exp_dir)
     print(f"  plots: {exp_dir}/exp2_*.png")
+    record_videos_if_requested("exp2", conditions, exp_dir, cfg, args)
     return rows
 
 
@@ -244,6 +270,7 @@ def part_exp3(cfg: Config, args, out_root: Path) -> list[dict]:
     report.print_table(rows)
     report.plot_exp3(rows, exp_dir)
     print(f"  plots: {exp_dir}/exp3_*.png")
+    record_videos_if_requested("exp3", conditions, exp_dir, cfg, args)
     return rows
 
 
@@ -293,9 +320,29 @@ def main() -> None:
     ap.add_argument("--force", action="store_true", help="rerun even if results exist")
     ap.add_argument("--device", default=None, help="device for policy inference (default cuda:0; ROCm is also called cuda)")
     ap.add_argument("--out", type=Path, default=OUTPUT_DIR / "results")
+    ap.add_argument("--record-video", action="store_true",
+                    help="rerun selected seeds after evaluation and save annotated comparison MP4s")
+    ap.add_argument("--video-seeds", nargs="+", type=int, default=None,
+                    help="exact seeds to record (default: the first evaluation seed only)")
+    ap.add_argument("--video-fps", type=int, default=25, help="recording frame rate (default: 25)")
     args = ap.parse_args()
 
     parts = PARTS if "all" in args.part else tuple(p for p in PARTS if p in args.part)
+    experiment_parts = tuple(part for part in parts if part in {"exp1", "exp2", "exp3"})
+    if args.video_seeds is not None and not args.record_video:
+        ap.error("--video-seeds requires --record-video")
+    if args.record_video and not experiment_parts:
+        ap.error("--record-video requires exp1, exp2, exp3, or all")
+    if args.video_fps <= 0:
+        ap.error("--video-fps must be positive")
+    policy_rate = 1.0 / (cfg.sim.timestep * cfg.sim.policy_every)
+    if args.video_fps > policy_rate:
+        ap.error(f"--video-fps cannot exceed the policy rate ({policy_rate:g} Hz)")
+    if args.video_seeds is not None and any(seed < 0 for seed in args.video_seeds):
+        ap.error("--video-seeds must be non-negative")
+    if args.record_video:
+        os.environ.setdefault("MUJOCO_GL", "egl")
+        args.video_seeds = args.video_seeds or [eval_seeds(cfg, args)[0]]
     args.device = pick_device(args.device)
     info = device_report(args.device)
     warn_if_not_rocm(info)

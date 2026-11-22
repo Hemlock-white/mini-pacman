@@ -33,6 +33,66 @@ PPO decides how fast to go, whether to turn and whether to crouch. The CBF chang
 Every group runs the same 100 seeds. We look at: did it reach the goal, how many balls hit, how close the balls got, and how much the filter stepped in.
 Everything has to run on the AMD machine (course rule, CUDA runs don't count).
 
+## Evaluation and videos
+
+The experiment runner is the inference entry point. A quick Exp 3 check is:
+
+```bash
+conda activate mini-pacman
+python run_mini_pacman_experiments.py \
+  --part exp3 \
+  --quick \
+  --device cuda:0 \
+  --out outputs/results/exp3_smoke
+```
+
+By default it writes JSONL episode results, `summary.csv`, and PNG plots. Video is opt-in because recording all
+100 seeds for every condition would create hundreds of files. Record one or more exact seeds with:
+
+```bash
+python run_mini_pacman_experiments.py \
+  --part exp3 \
+  --quick \
+  --device cuda:0 \
+  --out outputs/results/exp3_smoke \
+  --record-video \
+  --video-seeds 10090
+```
+
+The MP4 is written to:
+
+```text
+outputs/results/exp3_smoke/exp3/videos/exp3_sources_seed10090.mp4
+```
+
+The four Exp 3 conditions are shown in a 2x2 comparison. Exp 1 produces one filter-off/on comparison per reward,
+and Exp 2 produces one naive/lag-aware comparison. Multiple seeds are allowed:
+
+```bash
+--record-video --video-seeds 10041 10090 10095
+```
+
+If `--video-seeds` is omitted, only the first evaluation seed (`10000` by default) is recorded. Recording reruns
+those selected seeds with the same checkpoint and condition after numeric evaluation; it is not a replay of JSONL,
+which does not contain per-frame state. Videos include the green goal marker, goal distance, progress, hits, falls,
+and success status. `ffmpeg` must be installed (`sudo apt install ffmpeg` on Ubuntu). `outputs/` is ignored by Git.
+
+Useful commands:
+
+```bash
+# all experiments, five seeds per condition, plus videos for one representative seed
+python run_mini_pacman_experiments.py --part all --quick \
+  --device cuda:0 --out outputs/results/smoke \
+  --record-video --video-seeds 10000
+
+# recompute CSV and PNG files only; no inference and no video
+python run_mini_pacman_experiments.py --part summary \
+  --device cpu --out outputs/results/smoke
+
+# show every available option
+python run_mini_pacman_experiments.py --help
+```
+
 ## Robot: TITA
 
 ![TITA](docs/tita.png)
@@ -44,13 +104,12 @@ The model doesn't come with a license, so it's not in this repo. Run `python scr
 
 ## What each file does
 
-`(done)` = finished. Everything without it is still to do.
+The control, training, evaluation, reporting, and selected-seed recording paths are implemented.
 
 ```
 mini-pacman/
 ├── train_mini_pacman_policy.py     train PPO, --reward picks which reward (done)
-├── run_mini_pacman_experiments.py  run experiments, --part picks which one, policy files go in POLICY_FILES at the top
-│                                   (check, exp3, summary done; exp1, exp2 not yet)
+├── run_mini_pacman_experiments.py  run experiments; --part picks one and --record-video records selected seeds
 ├── minipacman/
 │   ├── config.py           every parameter lives here, change numbers here (done)
 │   ├── scene.py            builds the MuJoCo scene (TITA + floor + 5 balls) (done)
@@ -65,10 +124,11 @@ mini-pacman/
 │   ├── cbf.py              CBF reward term and the safety filter
 │   ├── dodge_env.py        the RL environment, wires everything above together
 │   ├── vec_env.py          runs many environments at once, plugs into rsl_rl
-│   ├── train_ppo.py        PPO settings (settings done, train() not yet)
+│   ├── train_ppo.py        PPO settings and training adapter
 │   ├── evaluate.py         runs one experiment group on fixed seeds
-│   ├── report.py           numbers and plots (done, except the exp1 / exp2 plots)
-│   └── runtime.py          logs which GPU we used and whether it's ROCm (done)
+│   ├── report.py           statistics, CSV files, and experiment plots
+│   ├── runtime.py          logs which GPU we used and whether it's ROCm
+│   └── video.py            annotated off-screen comparison videos for selected evaluation seeds
 ├── scripts/
 │   └── download_tita.py    downloads the TITA model
 ├── tests/                  tests; when you finish a module, remove the skip line in its test file
