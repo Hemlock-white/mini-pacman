@@ -52,3 +52,15 @@ def step(m, d, n, freezer=None, launcher=None):
             freezer.restore()
         if launcher is not None:
             launcher.check_contacts()
+
+
+def make_run(run_dir, cfg, reward, seed=0, num_envs=8, updates=3, rocm=True, labels=None):
+    """A fake but protocol-valid training run directory: run_info.json + checkpoint files (no real training)."""
+    from minipacman import protocol
+
+    manifest = protocol.new_manifest(cfg, reward, seed, num_envs, updates, {"rocm": rocm, "device": "test"})
+    protocol.start_fresh_run(run_dir, manifest)
+    for label in (labels if labels is not None else range(updates)):
+        (run_dir / f"model_{label}.pt").write_bytes(b"x")
+    protocol.finish_run(run_dir, run_dir / f"model_{updates - 1}.pt")
+    return run_dir

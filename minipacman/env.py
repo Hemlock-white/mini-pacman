@@ -247,7 +247,7 @@ class TitaEnv:
             yaw=yaw,
             v=forward_speed,
             w=float(velocity[2]),
-            s=float(np.clip(s, 0.0, 1.0)),
+            s=min(max(float(s), 0.0), 1.0),
         )
 
     def pitch(self) -> float:

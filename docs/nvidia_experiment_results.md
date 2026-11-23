@@ -1,3 +1,9 @@
+> **Superseded (2026-11-23). Don't cite these numbers.** They come from checkpoints that break the training
+> protocol: `task_cbf` was the `task` policy plus 2 PPO updates, `task_collision` had 200 updates with a collision
+> penalty the config no longer uses, and all three were picked on evaluation seeds 10000-10004. Exp 2 used a scripted
+> policy that never steered back to the goal, and the LQR fell under fast command changes. All of this is fixed; see
+> [training_protocol.md](training_protocol.md). The text below is kept as a record.
+
 # NVIDIA 開發實驗結果
 
 - 日期：2026-11-21～2026-11-22

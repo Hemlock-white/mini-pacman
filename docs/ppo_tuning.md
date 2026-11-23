@@ -1,3 +1,8 @@
+> **2026-11-23:** the PPO and reward settings below are still in config.py, but the staged learning rate, the
+> "fine-tune from the task policy" curriculum and the checkpoint gates on seeds 10000-10004 are no longer allowed
+> (they made Exp 1 unfair and leaked the evaluation seeds). The current procedure is
+> [training_protocol.md](training_protocol.md).
+
 # PPO 調整紀錄
 
 日期：2026-11-21  

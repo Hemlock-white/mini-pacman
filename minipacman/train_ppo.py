@@ -30,15 +30,15 @@ Two extra ideas:
   critic also sees the true ball state, which makes training more stable; only the actor is used at deployment.
 * obs_normalization: normalises observations automatically (MT06 doesn't).
 
-Trained checkpoints are saved as log_dir/model_<iteration>.pt. To use one in the experiments, put its path in
-POLICY_FILES at the top of run_mini_pacman_experiments.py.
+Trained checkpoints are saved as log_dir/model_<iteration>.pt. To use a run in the experiments, put its directory in
+POLICY_FILES at the top of run_mini_pacman_experiments.py (the final checkpoint is used, or the one --part select
+picked on the validation seeds; see protocol.py).
 """
 from __future__ import annotations
 
 from pathlib import Path
 
 import numpy as np
-import torch
 
 from .config import Config
 
@@ -83,21 +83,27 @@ def make_train_cfg(cfg: Config, reward_variant: str) -> dict:
 
 
 def train(cfg: Config, reward_variant: str, seed: int, log_dir: Path, device: str,
-          max_iterations: int | None = None, num_envs: int | None = None, resume: Path | None = None) -> Path:
-    """Train one policy and return the path of the last checkpoint.
+          max_iterations: int | None = None, num_envs: int | None = None, resume: Path | None = None,
+          device_info: dict | None = None, args: dict | None = None) -> Path:
+    """Train one policy and return the path of its final checkpoint (model_{iterations-1}.pt).
 
+    Follows protocol.py (keeps the Exp 1 policies comparable):
+      * a fresh run needs an empty log_dir; run_info.json records the reward, seed, envs, number of PPO updates,
+        config fingerprint and device
+      * resume may only continue an interrupted run in its own directory with identical settings (no fine-tuning
+        from another run, no learning-rate changes halfway); checkpoint numbers keep counting PPO updates
     Steps:
       1. torch.manual_seed(seed), np.random.seed(seed)
-      2. env = MiniPacmanVecEnv(cfg, reward_variant, num_envs or cfg.ppo.num_envs, cfg.ppo.num_workers,
-                                device, seed, filter_mode=None, augment_depth=True)
-         (no filter during training, so the "taught" effect is pure)
+      2. env = MiniPacmanVecEnv(cfg, reward_variant, num_envs, cfg.ppo.num_workers, device, seed,
+                                filter_mode=None, augment_depth=True)   (no filter during training)
       3. runner = rsl_rl.runners.OnPolicyRunner(env, make_train_cfg(cfg, reward_variant), str(log_dir), device)
-      4. if resume is not None: runner.load(str(resume))
-      5. runner.learn(num_learning_iterations=max_iterations or cfg.ppo.max_iterations)
-      6. env.close(); return the model_*.pt with the highest number in log_dir
-
+      4. runner.learn(...)
     Note: the runner modifies the make_train_cfg dict (it pops class_name), so call make_train_cfg again every time.
     """
+    import torch
+
+    from . import protocol
+
     if reward_variant not in cfg.exp.reward_variants:
         raise ValueError(f"unknown reward variant: {reward_variant!r}")
     iterations = cfg.ppo.max_iterations if max_iterations is None else int(max_iterations)
@@ -106,6 +112,20 @@ def train(cfg: Config, reward_variant: str, seed: int, log_dir: Path, device: st
         raise ValueError("max_iterations must be at least 1")
     if environment_count < 1:
         raise ValueError("num_envs must be at least 1")
+    protocol.check_seed_sets(cfg, seed, environment_count)
+
+    log_dir = Path(log_dir)
+    if resume is None:
+        manifest = protocol.new_manifest(cfg, reward_variant, seed, environment_count, iterations,
+                                         device_info or {}, args)
+        protocol.start_fresh_run(log_dir, manifest)
+        first_update = 0
+    else:
+        resume = Path(resume)
+        if not resume.is_file():
+            raise FileNotFoundError(f"checkpoint does not exist: {resume}")
+        _, first_update = protocol.continue_run(log_dir, resume, cfg, reward_variant, seed, environment_count,
+                                                iterations, device_info or {})
 
     from rsl_rl.runners import OnPolicyRunner
 
@@ -113,8 +133,6 @@ def train(cfg: Config, reward_variant: str, seed: int, log_dir: Path, device: st
 
     torch.manual_seed(seed)
     np.random.seed(seed)
-    log_dir = Path(log_dir)
-    log_dir.mkdir(parents=True, exist_ok=True)
     env = MiniPacmanVecEnv(
         cfg,
         reward_variant,
@@ -133,27 +151,16 @@ def train(cfg: Config, reward_variant: str, seed: int, log_dir: Path, device: st
             device,
         )
         if resume is not None:
-            resume = Path(resume)
-            if not resume.is_file():
-                raise FileNotFoundError(f"checkpoint does not exist: {resume}")
             runner.load(str(resume), map_location=device)
-            # rsl_rl restores the optimizer param groups, including the old LR.
-            # Reapply the current config so a staged resume can intentionally lower it.
-            runner.alg.learning_rate = cfg.ppo.learning_rate
-            for param_group in runner.alg.optimizer.param_groups:
-                param_group["lr"] = cfg.ppo.learning_rate
-        runner.learn(num_learning_iterations=iterations)
+            # rsl_rl would restart at the loaded index (repeating it); continue at the next update instead, so
+            # model_<k>.pt always means "after k+1 PPO updates", the same as in a run that was never interrupted.
+            runner.current_learning_iteration = first_update
+        runner.learn(num_learning_iterations=iterations - first_update)
     finally:
         env.close()
 
-    checkpoints = list(log_dir.glob("model_*.pt"))
-    if not checkpoints:
-        raise RuntimeError(f"training finished without a checkpoint in {log_dir}")
-
-    def iteration(path: Path) -> int:
-        try:
-            return int(path.stem.rsplit("_", 1)[1])
-        except (IndexError, ValueError):
-            return -1
-
-    return max(checkpoints, key=iteration)
+    final = log_dir / f"model_{iterations - 1}.pt"
+    if not final.is_file():
+        raise RuntimeError(f"training finished without its final checkpoint {final}")
+    protocol.finish_run(log_dir, final)
+    return final

@@ -43,24 +43,29 @@ class Condition:
 
 
 class ScriptedPolicy:
-    """Hard-coded high-level command: drive straight to the goal, never dodge (for Exp 2, so the result only reflects the filter).
+    """Hard-coded high-level command: drive to the goal, never dodge (for Exp 2, so the result only reflects the filter).
 
-    act(obs) returns an action ∈ [-1, 1]^3 meaning v = 0.5 m/s, w = 0, sdot = - (stay standing).
-    Stop at the goal (v = 0). Distance to the goal: obs["actor"][obs_layout(cfg)["actor"]["goal"]]
-    ((forward, left) in the heading frame), or get it straight from the env.
+    act(obs) returns an action in [-1, 1]^3 meaning: turn towards the goal (w = turn_gain * bearing, clipped to the
+    standing turn limit), drive at cruise_speed * max(cos(bearing), 0) (slow down while facing away), and stay standing
+    (sdot = -max). Stop at the goal. The goal comes from obs["actor"][obs_layout(cfg)["actor"]["goal"]]
+    ((forward, left) in the heading frame).
+
+    It has to steer back: with turning allowed, the safety filter may turn the robot away from a ball, and a policy
+    that only drives straight would then miss the goal (the first version did, so Exp 2's success rate measured the
+    script, not the filter).
     """
+
+    cruise_speed = 0.5      # m/s
+    turn_gain = 2.0         # rad/s per rad of bearing error
 
     def __init__(self, cfg: Config):
         self.cfg = cfg
-        command = cfg.command
-        self.drive_action = np.array([
-            2 * (0.5 - command.v_min) / (command.v_max_stand - command.v_min) - 1,
-            0.0,
-            -1.0,
-        ])
-        self.stop_action = np.array([
-            2 * (0.0 - command.v_min) / (command.v_max_stand - command.v_min) - 1,
-            0.0,
+
+    def _action(self, v: float, w: float) -> np.ndarray:
+        command = self.cfg.command
+        return np.array([
+            2 * (v - command.v_min) / (command.v_max_stand - command.v_min) - 1,
+            w / command.w_max_stand,
             -1.0,
         ])
 
@@ -68,9 +73,14 @@ class ScriptedPolicy:
         from .dodge_env import obs_layout
 
         goal_slice = obs_layout(self.cfg)["actor"]["goal"]
-        goal = np.asarray(obs["actor"][goal_slice])
-        return (self.stop_action if np.linalg.norm(goal) <= self.cfg.task.goal_radius
-                else self.drive_action).copy()
+        forward, left = np.asarray(obs["actor"][goal_slice], dtype=float)
+        if np.hypot(forward, left) <= self.cfg.task.goal_radius:
+            return self._action(0.0, 0.0)
+        bearing = float(np.arctan2(left, forward))
+        w_max = self.cfg.command.w_max_stand
+        w = float(np.clip(self.turn_gain * bearing, -w_max, w_max))
+        v = self.cruise_speed * max(float(np.cos(bearing)), 0.0)
+        return self._action(v, w)
 
 
 class _LoadedPolicy:
@@ -145,22 +155,24 @@ def load_policy(path: str | Path, cfg: Config, device: str):
     return _LoadedPolicy(model, torch_device)
 
 
-def run_episode(condition: Condition, seed: int, cfg: Config, policy, device: str) -> dict:
-    """Run one episode and return a dict in the EPISODE_SCHEMA format.
-
-    Create DodgeEnv(cfg, condition.reward_variant, condition.filter_mode, condition.replan,
-                    condition.ball_source, augment_depth=False, seed=seed),
-    obs = env.reset(seed), step until terminated or truncated, then use env.episode_summary() and add
-    "condition", "seed" and "device".
-    (If creating the env is slow, let run_condition reuse one env and just call reset(seed) for each seed.)
-    """
+def make_env(condition: Condition, cfg: Config, seed: int = 0, scene_path=None):
+    """The DodgeEnv for a condition (evaluation: no depth augmentation). One env can run many seeds via reset(seed)."""
     from .dodge_env import DodgeEnv
 
     reward_variant = "task" if condition.reward_variant == "scripted" else condition.reward_variant
-    env = DodgeEnv(
+    return DodgeEnv(
         cfg, reward_variant, condition.filter_mode, condition.replan,
-        condition.ball_source, augment_depth=False, seed=seed,
+        condition.ball_source, augment_depth=False, seed=seed, scene_path=scene_path,
     )
+
+
+def run_episode(condition: Condition, seed: int, cfg: Config, policy, device: str, env=None) -> dict:
+    """Run one episode and return a dict in the EPISODE_SCHEMA format.
+
+    env: reuse an env made by make_env(condition, ...) (reset(seed) fully resets MuJoCo, so the result only depends
+    on the seed); None creates a new one.
+    """
+    env = make_env(condition, cfg, seed) if env is None else env
     observation = env.reset(seed)
     while True:
         if hasattr(policy, "act"):
@@ -178,13 +190,29 @@ def run_episode(condition: Condition, seed: int, cfg: Config, policy, device: st
     }
 
 
+# ---------------- parallel evaluation (each worker loads the policy once and reuses one env) ----------------
+_WORKER: dict = {}
+
+
+def _eval_worker_init(condition: Condition, cfg: Config, device: str, scene_path: str) -> None:
+    _WORKER["policy"] = (ScriptedPolicy(cfg) if condition.policy == "scripted"
+                         else load_policy(condition.policy, cfg, device))
+    _WORKER["env"] = make_env(condition, cfg, scene_path=scene_path)
+    _WORKER.update(condition=condition, cfg=cfg, device=device)
+
+
+def _eval_worker_run(seed: int) -> dict:
+    w = _WORKER
+    return run_episode(w["condition"], int(seed), w["cfg"], w["policy"], w["device"], env=w["env"])
+
+
 def run_condition(condition: Condition, seeds: list[int], cfg: Config, out_path: Path, device: str,
-                  resume: bool = True) -> list[dict]:
+                  resume: bool = True, workers: int = 1) -> list[dict]:
     """Run run_episode for every seed, append each finished one to out_path (.jsonl), return all episodes.
 
     resume=True: skip seeds already in out_path (read them with report.load_jsonl), so an interrupted run can continue.
     resume=False: delete out_path first and rerun everything.
-    Different seeds can run in parallel with multiprocessing (each seed is independent; order doesn't matter).
+    workers > 1: run seeds in parallel subprocesses (each seed is independent, so the results are the same).
     """
     from . import report
 
@@ -193,12 +221,31 @@ def run_condition(condition: Condition, seeds: list[int], cfg: Config, out_path:
         out_path.unlink(missing_ok=True)
     existing = report.load_jsonl(out_path) if resume else []
     by_seed = {int(episode["seed"]): episode for episode in existing}
-    policy = (ScriptedPolicy(cfg) if condition.policy == "scripted"
-              else load_policy(condition.policy, cfg, device))
-    for seed in seeds:
-        if int(seed) in by_seed:
-            continue
-        episode = run_episode(condition, int(seed), cfg, policy, device)
-        report.append_jsonl(episode, out_path)
-        by_seed[int(seed)] = episode
+    todo = [int(seed) for seed in seeds if int(seed) not in by_seed]
+    if todo and workers > 1:
+        import multiprocessing as mp
+
+        from .scene import build_scene
+        from .vec_worker import single_threaded_children
+
+        scene_path = str(build_scene(cfg=cfg))          # once, so the workers don't write the file at the same time
+        with single_threaded_children():
+            pool = mp.get_context("spawn").Pool(
+                min(int(workers), len(todo)), initializer=_eval_worker_init,
+                initargs=(condition, cfg, device, scene_path))
+        try:
+            for episode in pool.imap_unordered(_eval_worker_run, todo):
+                report.append_jsonl(episode, out_path)
+                by_seed[int(episode["seed"])] = episode
+        finally:
+            pool.close()
+            pool.join()
+    elif todo:
+        policy = (ScriptedPolicy(cfg) if condition.policy == "scripted"
+                  else load_policy(condition.policy, cfg, device))
+        env = make_env(condition, cfg, todo[0])
+        for seed in todo:
+            episode = run_episode(condition, seed, cfg, policy, device, env=env)
+            report.append_jsonl(episode, out_path)
+            by_seed[seed] = episode
     return [by_seed[int(seed)] for seed in seeds if int(seed) in by_seed]

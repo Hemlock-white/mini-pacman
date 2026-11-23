@@ -5,6 +5,9 @@ import importlib
 
 import numpy as np
 
+import pytest
+
+from conftest import make_run
 from minipacman import report
 
 
@@ -43,13 +46,12 @@ def test_part_exp3_flow(tmp_path, monkeypatch, cfg):
     """Exp 3 flow: all 4 conditions (filter off + 3 ball information sources) run, are saved and summarised."""
     run = importlib.import_module("run_mini_pacman_experiments")
     import minipacman.evaluate as ev
-    fake_policy = tmp_path / "policy.pt"
-    fake_policy.write_bytes(b"x")
-    monkeypatch.setitem(run.POLICY_FILES, cfg.exp.exp3_reward_variant, str(fake_policy))
+    run_dir = make_run(tmp_path / "runs" / cfg.exp.exp3_reward_variant, cfg, cfg.exp.exp3_reward_variant)
+    monkeypatch.setitem(run.POLICY_FILES, cfg.exp.exp3_reward_variant, str(run_dir))
     hit_prob = {"exp3_no_filter": 0.6, "exp3_truth": 0.05, "exp3_noisy_truth": 0.1, "exp3_depth_tracker": 0.2}
     seen = []
 
-    def fake_run_condition(condition, seeds, cfg_, out_path, device, resume=True):
+    def fake_run_condition(condition, seeds, cfg_, out_path, device, resume=True, workers=1):
         seen.append(condition)
         rng = np.random.default_rng(len(seen))
         eps = [_fake_episode(rng, hit_prob[condition.name], s, condition.name) for s in seeds]
@@ -57,7 +59,7 @@ def test_part_exp3_flow(tmp_path, monkeypatch, cfg):
         return eps
 
     monkeypatch.setattr(ev, "run_condition", fake_run_condition)
-    args = argparse.Namespace(seeds=None, quick=True, force=False, device="cpu")
+    args = argparse.Namespace(seeds=None, quick=True, force=False, device="cpu", workers=1)
     rows = run.part_exp3(cfg, args, tmp_path)
     assert [c.name for c in seen] == ["exp3_no_filter", "exp3_truth", "exp3_noisy_truth", "exp3_depth_tracker"]
     assert seen[0].filter_mode is None and all(c.filter_mode == cfg.exp.exp3_filter_mode for c in seen[1:])
@@ -72,11 +74,10 @@ def test_part_exp1_flow(tmp_path, monkeypatch, cfg):
     import minipacman.evaluate as ev
     seen = []
     for reward_variant in cfg.exp.reward_variants:
-        policy = tmp_path / f"{reward_variant}.pt"
-        policy.write_bytes(b"x")
-        monkeypatch.setitem(run.POLICY_FILES, reward_variant, str(policy))
+        run_dir = make_run(tmp_path / "runs" / reward_variant, cfg, reward_variant)
+        monkeypatch.setitem(run.POLICY_FILES, reward_variant, str(run_dir))
 
-    def fake_run_condition(condition, seeds, cfg_, out_path, device, resume=True):
+    def fake_run_condition(condition, seeds, cfg_, out_path, device, resume=True, workers=1):
         seen.append(condition)
         probability = 0.15 if condition.filter_mode else 0.5
         rng = np.random.default_rng(len(seen) + 20)
@@ -85,7 +86,7 @@ def test_part_exp1_flow(tmp_path, monkeypatch, cfg):
         return episodes
 
     monkeypatch.setattr(ev, "run_condition", fake_run_condition)
-    args = argparse.Namespace(seeds=None, quick=True, force=False, device="cpu")
+    args = argparse.Namespace(seeds=None, quick=True, force=False, device="cpu", workers=1)
     rows = run.part_exp1(cfg, args, tmp_path)
     assert [condition.name for condition in seen] == [
         f"exp1_{reward}_{suffix}"
@@ -104,7 +105,7 @@ def test_part_exp2_flow(tmp_path, monkeypatch, cfg):
     import minipacman.evaluate as ev
     seen = []
 
-    def fake_run_condition(condition, seeds, cfg_, out_path, device, resume=True):
+    def fake_run_condition(condition, seeds, cfg_, out_path, device, resume=True, workers=1):
         seen.append(condition)
         rng = np.random.default_rng(len(seen) + 10)
         probability = 0.4 if condition.filter_mode == "naive" else 0.2
@@ -113,7 +114,7 @@ def test_part_exp2_flow(tmp_path, monkeypatch, cfg):
         return episodes
 
     monkeypatch.setattr(ev, "run_condition", fake_run_condition)
-    args = argparse.Namespace(seeds=None, quick=True, force=False, device="cpu")
+    args = argparse.Namespace(seeds=None, quick=True, force=False, device="cpu", workers=1)
     rows = run.part_exp2(cfg, args, tmp_path)
     assert [condition.name for condition in seen] == ["exp2_naive", "exp2_lag_aware"]
     assert [condition.filter_mode for condition in seen] == ["naive", "lag_aware"]
@@ -148,3 +149,64 @@ def test_part_summary_restores_condition_metadata(tmp_path, monkeypatch, cfg):
     ]
     assert (tmp_path / "exp1" / "exp1_collision_rate.png").exists()
     assert (tmp_path / "exp1" / "exp1_success_intervention.png").exists()
+
+
+def _exp1_runs(tmp_path, monkeypatch, cfg, run, **per_variant):
+    for reward_variant in cfg.exp.reward_variants:
+        kwargs = per_variant.get(reward_variant, {})
+        run_dir = make_run(tmp_path / "runs" / reward_variant, cfg, reward_variant, **kwargs)
+        monkeypatch.setitem(run.POLICY_FILES, reward_variant, str(run_dir))
+
+
+def test_exp1_refuses_policies_trained_differently(tmp_path, monkeypatch, cfg):
+    """Round 1 compared a 1500-update policy with a 200-update one; the runner must refuse that."""
+    run = importlib.import_module("run_mini_pacman_experiments")
+    _exp1_runs(tmp_path, monkeypatch, cfg, run, task_collision={"updates": 5})
+    with pytest.raises(SystemExit, match="number of PPO updates differs"):
+        run.exp1_conditions(cfg)
+
+
+def test_exp1_refuses_different_training_seeds(tmp_path, monkeypatch, cfg):
+    run = importlib.import_module("run_mini_pacman_experiments")
+    _exp1_runs(tmp_path, monkeypatch, cfg, run, task_cbf={"seed": 2})
+    with pytest.raises(SystemExit, match="training seed differs"):
+        run.exp1_conditions(cfg)
+
+
+def test_exp1_refuses_a_hand_picked_checkpoint(tmp_path, monkeypatch, cfg):
+    """Round 1 picked checkpoints on evaluation seeds; only the final or validation-selected one is allowed."""
+    run = importlib.import_module("run_mini_pacman_experiments")
+    _exp1_runs(tmp_path, monkeypatch, cfg, run)
+    monkeypatch.setitem(run.POLICY_FILES, "task", str(tmp_path / "runs" / "task" / "model_1.pt"))
+    with pytest.raises(SystemExit, match="hand-picked"):
+        run.exp1_conditions(cfg)
+
+
+def test_part_select_uses_validation_seeds_only(tmp_path, monkeypatch, cfg):
+    """--part select must evaluate on the validation seeds, never on the evaluation seeds, for all three runs."""
+    run = importlib.import_module("run_mini_pacman_experiments")
+    import minipacman.evaluate as ev
+    from minipacman import protocol
+
+    cfg.exp.select_every = 2
+    _exp1_runs(tmp_path, monkeypatch, cfg, run, task={"updates": 5}, task_collision={"updates": 5},
+               task_cbf={"updates": 5})
+    used_seeds = set()
+
+    def fake_run_condition(condition, seeds, cfg_, out_path, device, resume=True, workers=1):
+        used_seeds.update(seeds)
+        label = int(condition.name.rsplit("_", 1)[1])
+        rng = np.random.default_rng(label)
+        episodes = [_fake_episode(rng, 0.3, seed, condition.name) for seed in seeds]
+        for episode in episodes:
+            episode["success"] = label == 2          # make model_2 the best
+        return episodes
+
+    monkeypatch.setattr(ev, "run_condition", fake_run_condition)
+    args = argparse.Namespace(force=False, device="cpu", workers=1)
+    run.part_select(cfg, args, tmp_path)
+    assert used_seeds == set(protocol.validation_seeds(cfg))
+    assert not used_seeds & set(protocol.evaluation_seeds(cfg))
+    records = [protocol.resolve_policy(tmp_path / "runs" / rv, rv, cfg) for rv in cfg.exp.reward_variants]
+    assert all(r.path.name == "model_2.pt" and r.selection["rule"] == "validation" for r in records)
+    protocol.check_same_protocol(records)

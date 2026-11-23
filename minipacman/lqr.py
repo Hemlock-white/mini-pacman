@@ -59,6 +59,11 @@ import scipy.linalg as sla
 from .config import Config, CommandConfig
 
 
+def _clamp(x: float, low: float, high: float) -> float:
+    """Scalar clip. np.clip on a single float costs ~4 us; the control loop calls it ~150 times per policy step."""
+    return low if x < low else high if x > high else x
+
+
 @dataclass
 class Reference:
     """What the LQR tracks (world frame)."""
@@ -69,29 +74,61 @@ class Reference:
     s: float               # crouch level 0 (standing) .. 1 (lowest)
 
 
+def envelope_limits(s: float, cmd: CommandConfig) -> tuple[float, float, float]:
+    """Speed limits at crouch level s: (v_low, v_high, w_high), all linear in s.
+
+        v_high(s) = v_max_stand + (v_max_crouch - v_max_stand) * s      (forward)
+        v_low(s)  = v_min       + (v_min_crouch - v_min)       * s      (reverse, negative)
+        w_high(s) = w_max_stand + (w_max_crouch - w_max_stand) * s
+    """
+    crouch = _clamp(float(s), 0.0, 1.0)
+    v_high = cmd.v_max_stand + (cmd.v_max_crouch - cmd.v_max_stand) * crouch
+    v_low = cmd.v_min + (cmd.v_min_crouch - cmd.v_min) * crouch
+    w_high = cmd.w_max_stand + (cmd.w_max_crouch - cmd.w_max_stand) * crouch
+    return v_low, v_high, w_high
+
+
+def max_crouch_for(v: float, w: float, cmd: CommandConfig) -> float:
+    """The deepest crouch level s in [0, 1] whose envelope still contains the speeds (v, w).
+
+    ReferenceGenerator uses it so the robot only crouches as fast as it slows down: crouching first and slowing
+    down afterwards leaves the robot outside the envelope for a few hundred ms, and that is how it fell.
+    """
+    def deepest(value: float, at_stand: float, at_crouch: float) -> float:
+        # limit(s) = at_stand + (at_crouch - at_stand) * s shrinks with s; find where it reaches |value|
+        if value <= at_crouch + 1e-12:
+            return 1.0
+        if value >= at_stand:
+            return 0.0
+        return float((at_stand - value) / (at_stand - at_crouch))
+
+    forward = deepest(max(v, 0.0), cmd.v_max_stand, cmd.v_max_crouch)
+    reverse = deepest(max(-v, 0.0), -cmd.v_min, -cmd.v_min_crouch)
+    turning = deepest(abs(w), cmd.w_max_stand, cmd.w_max_crouch)
+    return min(forward, reverse, turning)
+
+
 def clip_to_envelope(u: np.ndarray, s: float, cmd: CommandConfig) -> np.ndarray:
     """Clip the command u = (v, w, sdot) to the safe envelope.
 
-    The speed limits drop linearly with the crouch level s:
-        v_max(s) = v_max_stand + (v_max_crouch - v_max_stand) * s
-        w_max(s) = w_max_stand + (w_max_crouch - w_max_stand) * s
-    Clip v to [v_min, v_max(s)], w to [-w_max(s), w_max(s)], sdot to [-sdot_max, sdot_max], and sdot can't be
+    The speed limits drop linearly with the crouch level s (envelope_limits):
+    clip v to [v_low(s), v_high(s)], w to [-w_high(s), w_high(s)], sdot to [-sdot_max, sdot_max], and sdot can't be
     negative when s is already 0, or positive when s is 1.
     Return a new np.ndarray (don't modify the input).
     """
     command = np.asarray(u, dtype=float)
     if command.shape != (3,):
         raise ValueError(f"u must have shape (3,), got {command.shape}")
-    if not np.all(np.isfinite(command)) or not np.isfinite(s):
+    v, w, sdot, s = float(command[0]), float(command[1]), float(command[2]), float(s)
+    if not all(map(np.isfinite, (v, w, sdot, s))):
         raise ValueError("u and s must contain only finite values")
 
-    crouch = float(np.clip(s, 0.0, 1.0))
-    v_max = cmd.v_max_stand + (cmd.v_max_crouch - cmd.v_max_stand) * crouch
-    w_max = cmd.w_max_stand + (cmd.w_max_crouch - cmd.w_max_stand) * crouch
+    crouch = _clamp(s, 0.0, 1.0)
+    v_low, v_high, w_high = envelope_limits(crouch, cmd)
     clipped = np.array([
-        np.clip(command[0], cmd.v_min, v_max),
-        np.clip(command[1], -w_max, w_max),
-        np.clip(command[2], -cmd.sdot_max, cmd.sdot_max),
+        _clamp(v, v_low, v_high),
+        _clamp(w, -w_high, w_high),
+        _clamp(sdot, -cmd.sdot_max, cmd.sdot_max),
     ], dtype=float)
     if crouch <= 0.0:
         clipped[2] = max(0.0, clipped[2])
@@ -100,14 +137,29 @@ def clip_to_envelope(u: np.ndarray, s: float, cmd: CommandConfig) -> np.ndarray:
     return clipped
 
 
+def crouch_first(command: np.ndarray, s: float, cmd: CommandConfig) -> np.ndarray:
+    """Give a crouch request priority over speed: while sdot > 0, also clip (v, w) to the envelope of the crouch
+    level crouch_lookahead seconds ahead. Otherwise a robot commanded at the top speed of its current level would
+    never slow down, and so (by the crouch coupling) never crouch: it couldn't duck under a ball while driving."""
+    if command[2] <= 0.0:
+        return command
+    goal = min(1.0, float(s) + float(command[2]) * cmd.crouch_lookahead)
+    v_low, v_high, w_high = envelope_limits(goal, cmd)
+    out = command.copy()
+    out[0] = _clamp(float(out[0]), v_low, v_high)
+    out[1] = _clamp(float(out[1]), -w_high, w_high)
+    return out
+
+
 class ReferenceGenerator:
     """Turns the command u = (v, w, sdot) into a smooth reference.
 
     Call update() every physics step:
-      1. u = clip_to_envelope(u, self.s, cfg.command)
+      1. u = clip_to_envelope(u, self.s, cfg.command), then crouch_first (a crouch request also lowers the speed)
       2. Move the reference speeds towards u, but no faster than accel_limit (v) and yaw_accel_limit (w).
          Prototype: if the speed command jumps too much in one step, the LQR gets "kicked" and falls.
-      3. s += sdot * dt, clipped to [0, 1].
+      3. s += sdot * dt, clipped to [0, 1], and never deeper than max_crouch_for(v, w): the reference speeds are
+         rate limited, so without this the robot could be crouched while still too fast (it fell that way).
       4. psi += w * dt; p += v * dt * (cos psi, sin psi).
     """
 
@@ -115,34 +167,55 @@ class ReferenceGenerator:
         self.cfg = cfg
         self._reference = Reference(np.zeros(2), 0.0, 0.0, 0.0, 0.0)
 
-    def reset(self, p0: np.ndarray, psi0: float) -> None:
-        """Start of an episode: reference position = robot position, speeds 0, s = 0."""
+    def reset(self, p0: np.ndarray, psi0: float, v: float = 0.0, w: float = 0.0, s: float = 0.0) -> None:
+        """Start of an episode: reference position = robot position, speeds 0, s = 0.
+        (The safety filter also starts it from the robot's current v, w, s to predict a candidate command.)"""
         position = np.asarray(p0, dtype=float)
         if position.shape != (2,):
             raise ValueError(f"p0 must have shape (2,), got {position.shape}")
-        if not np.all(np.isfinite(position)) or not np.isfinite(psi0):
-            raise ValueError("p0 and psi0 must contain only finite values")
-        self._reference = Reference(position.copy(), float(psi0), 0.0, 0.0, 0.0)
+        if not np.all(np.isfinite(position)) or not np.all(np.isfinite([psi0, v, w, s])):
+            raise ValueError("p0, psi0, v, w and s must contain only finite values")
+        self._reference = Reference(position.copy(), float(psi0), float(v), float(w),
+                                    float(np.clip(s, 0.0, 1.0)))
 
     def update(self, u: np.ndarray, dt: float) -> Reference:
         if not np.isfinite(dt) or dt <= 0.0:
             raise ValueError("dt must be positive and finite")
-        command = clip_to_envelope(u, self.s, self.cfg.command)
+        command = crouch_first(clip_to_envelope(u, self.s, self.cfg.command), self.s, self.cfg.command)
         previous = self._reference
         limits = self.cfg.command
 
-        dv = np.clip(command[0] - previous.v,
-                     -limits.accel_limit * dt, limits.accel_limit * dt)
-        dw = np.clip(command[1] - previous.w,
-                     -limits.yaw_accel_limit * dt, limits.yaw_accel_limit * dt)
+        dv = _clamp(float(command[0]) - previous.v, -limits.accel_limit * dt, limits.accel_limit * dt)
+        dw = _clamp(float(command[1]) - previous.w, -limits.yaw_accel_limit * dt, limits.yaw_accel_limit * dt)
         v = float(previous.v + dv)
         w = float(previous.w + dw)
-        s = float(np.clip(previous.s + command[2] * dt, 0.0, 1.0))
+        s = _clamp(previous.s + float(command[2]) * dt, 0.0, 1.0)
+        deepest = max_crouch_for(v, w, limits)
+        if s > deepest:
+            # crouch only as far as the current speeds allow; if already deeper, at least don't go further
+            s = deepest if previous.s <= deepest else min(s, previous.s)
         psi = float(previous.psi + w * dt)
         heading = np.array([np.cos(psi), np.sin(psi)])
         position = previous.p + v * dt * heading
         self._reference = Reference(position, psi, v, w, s)
         return Reference(position.copy(), psi, v, w, s)
+
+    def leash(self, robot_xy: np.ndarray, max_error: float | None) -> None:
+        """Don't let the reference run more than max_error (m) ahead of the robot in the direction it is moving.
+
+        With frequent speed changes the robot can't keep up, the reference runs away, and the LQR leans harder and
+        harder to catch up until it falls (stress test 2026-11-23). Only a robot that lags behind is helped: when it
+        is ahead the LQR slows it down by itself, and holding the error there instead would leave a steady speed
+        offset (clipping the error both ways gave 0.6 m/s for a 0.5 m/s command).
+        """
+        ref = self._reference
+        if max_error is None or ref.v == 0.0:
+            return
+        heading = np.array([np.cos(ref.psi), np.sin(ref.psi)])
+        direction = np.sign(ref.v) * heading
+        lag = float(direction @ (ref.p - np.asarray(robot_xy, dtype=float)))   # > 0: reference ahead of the robot
+        if lag > max_error:
+            ref.p = ref.p - (lag - max_error) * direction
 
     @property
     def s(self) -> float:
@@ -248,7 +321,7 @@ class LQRBalancer:
     def leg_targets(self, s: float) -> np.ndarray:
         """Targets for the 6 leg joints: hip and knee blended between standing and crouched by s (env.legs_of(h, k))."""
         self._require_designed()
-        crouch = float(np.clip(s, 0.0, 1.0))
+        crouch = _clamp(float(s), 0.0, 1.0)
         stand = np.asarray(self.leg_poses["stand"])
         low = np.asarray(self.leg_poses["crouch"])
         hip, knee = (1.0 - crouch) * stand + crouch * low
@@ -277,7 +350,7 @@ class LQRBalancer:
                 f"got {position.shape}/{velocity.shape}"
             )
 
-        crouch = float(np.clip(ref.s, 0.0, 1.0))
+        crouch = _clamp(float(ref.s), 0.0, 1.0)
         gain = (1.0 - crouch) * self.gains["stand"] + crouch * self.gains["crouch"]
         q_reference = ((1.0 - crouch) * self.q0["stand"]
                        + crouch * self.q0["crouch"])

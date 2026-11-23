@@ -41,6 +41,24 @@ def test_scripted_policy_drives_then_stops(cfg):
     assert drive[2] == stop[2] == -1.0
 
 
+def test_scripted_policy_turns_back_to_the_goal(cfg):
+    """After the filter turns the robot away, the script must steer back (goal on the left -> turn left)."""
+    from minipacman.dodge_env import obs_layout
+
+    policy = ScriptedPolicy(cfg)
+    layout = obs_layout(cfg)["actor"]
+    actor = np.zeros(max(part.stop for part in layout.values()), dtype=np.float32)
+    actor[layout["goal"]] = [1.0, 2.0]
+    left = policy.act({"actor": actor}, None)
+    actor[layout["goal"]] = [1.0, -2.0]
+    right = policy.act({"actor": actor}, None)
+    actor[layout["goal"]] = [-3.0, 0.1]
+    behind = policy.act({"actor": actor}, None)
+    assert left[1] > 0 > right[1]
+    v_zero = 2 * (0.0 - cfg.command.v_min) / (cfg.command.v_max_stand - cfg.command.v_min) - 1
+    assert behind[0] == pytest.approx(v_zero)   # goal behind: turn on the spot, don't drive away
+
+
 def test_load_policy_is_deterministic(tmp_path, cfg):
     import torch
     from rsl_rl.models import MLPModel
@@ -96,11 +114,12 @@ def test_run_condition_resume(tmp_path, monkeypatch, cfg):
     report.save_jsonl([_episode(1, condition.name)], path)
     calls = []
 
-    def fake_run_episode(condition_, seed, cfg_, policy, device):
+    def fake_run_episode(condition_, seed, cfg_, policy, device, env=None):
         calls.append(seed)
         return _episode(seed, condition_.name)
 
     monkeypatch.setattr(evaluate, "run_episode", fake_run_episode)
+    monkeypatch.setattr(evaluate, "make_env", lambda *args, **kwargs: None)
     episodes = evaluate.run_condition(condition, [1, 2], cfg, path, "cpu", resume=True)
     assert calls == [2]
     assert [episode["seed"] for episode in episodes] == [1, 2]

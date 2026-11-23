@@ -124,6 +124,8 @@ mini-pacman/
 │   ├── cbf.py              CBF reward term and the safety filter
 │   ├── dodge_env.py        the RL environment, wires everything above together
 │   ├── vec_env.py          runs many environments at once, plugs into rsl_rl
+│   ├── vec_worker.py       the subprocess side of vec_env (no torch, one math thread each)
+│   ├── protocol.py         training/evaluation rules: fair Exp 1, evaluation seeds never used to pick anything
 │   ├── train_ppo.py        PPO settings and training adapter
 │   ├── evaluate.py         runs one experiment group on fixed seeds
 │   ├── report.py           statistics, CSV files, and experiment plots
@@ -132,12 +134,15 @@ mini-pacman/
 ├── scripts/
 │   └── download_tita.py    downloads the TITA model
 ├── tests/                  tests; when you finish a module, remove the skip line in its test file
-├── docs/                   pictures for this README (done)
+├── docs/                   pictures for this README, training_protocol.md (how to train and evaluate, read this first)
 ├── third_party/            the downloaded TITA goes here (not in git)
 └── outputs/                training and experiment results (not in git)
 ```
 
 To see what's done and what's not yet: `python run_mini_pacman_experiments.py --part check`
+
+Before training or evaluating, read [docs/training_protocol.md](docs/training_protocol.md): the code refuses policies
+that weren't trained and picked the same way, or were picked on the evaluation seeds.
 
 ## Working together: so push / pull don't fight
 

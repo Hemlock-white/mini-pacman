@@ -8,8 +8,15 @@ Usage:
     python run_mini_pacman_experiments.py --part exp3 --force           # rerun even if results exist
     python run_mini_pacman_experiments.py --part exp2 --seeds 20        # custom number of seeds
     python run_mini_pacman_experiments.py --part exp3 --quick --record-video --video-seeds 10090
+    python run_mini_pacman_experiments.py --part select                 # optional: pick checkpoints on validation seeds
+    python run_mini_pacman_experiments.py --part exp1 --workers 16      # run seeds in parallel
 
-**Which policy files to use: edit POLICY_FILES below** (paths relative to the repo root).
+**Which policies to use: edit POLICY_FILES below** (run directories relative to the repo root).
+Every policy is checked against the training protocol (minipacman/protocol.py) before it is used:
+  * Exp 1: the three runs must have the same seed, envs, number of PPO updates and config, all from scratch
+  * the checkpoint is the run's final one, or the one --part select picked on the validation seeds
+    (seeds 20000-...; the evaluation seeds 10000-10099 are never used to pick anything)
+A policy that breaks a rule stops the part with an explanation.
 
 Experiments
 -----------
@@ -18,6 +25,9 @@ Experiments
     exp3  ball information source: same policy + filter, ball info from truth / noisy / depth camera estimate,
           plus a filter-off reference group                                                     [DONE]
     summary  read all results, print tables, make plots
+    select   (optional, not part of "all") for each run in POLICY_FILES, compare every cfg.exp.select_every-th
+             checkpoint + the final one on the validation seeds (filter off) and record the pick in
+             <run>/selection.json; the same rule is applied to all three, so Exp 1 stays fair
 
 Results go to outputs/results/<exp>/: one .jsonl per condition (one line per episode), summary.csv, plots.
 With --record-video, selected seeds are rerun and comparison MP4s go to <out>/<exp>/videos/.
@@ -33,19 +43,23 @@ from pathlib import Path
 
 from minipacman import report
 from minipacman.config import OUTPUT_DIR, REPO_ROOT, Config, default_config
+from minipacman import protocol
 from minipacman.evaluate import Condition
 from minipacman.runtime import device_report, pick_device, warn_if_not_rocm
 
 # ============================================================================================
-# Policies to evaluate (put the paths here after training)
+# Policies to evaluate: the training run directories (train_mini_pacman_policy.py --out ...)
+# A directory means: the checkpoint --part select picked, or else the final one. A model_*.pt file is also accepted
+# if it is one of those two. (The round-1 NVIDIA checkpoints don't follow the protocol and are refused.)
 # ============================================================================================
 POLICY_FILES = {
-    "task": "outputs/policies/task/20261121_tuned_seed0/model_1499.pt",
-    "task_collision": "outputs/policies/task_collision/20261121_tuned_seed1/model_200.pt",
-    "task_cbf": "outputs/policies/task_cbf/20261121_cbf1_from_task1499_seed2/model_1500.pt",
+    "task": "outputs/policies/task/run1",
+    "task_collision": "outputs/policies/task_collision/run1",
+    "task_cbf": "outputs/policies/task_cbf/run1",
 }
 
-PARTS = ("check", "exp1", "exp2", "exp3", "summary")
+PARTS = ("check", "select", "exp1", "exp2", "exp3", "summary")
+ALL_PARTS = ("check", "exp1", "exp2", "exp3", "summary")      # --part all (select is opt-in)
 
 
 # ============================================================================================
@@ -53,24 +67,47 @@ PARTS = ("check", "exp1", "exp2", "exp3", "summary")
 # ============================================================================================
 def eval_seeds(cfg: Config, args) -> list[int]:
     n = args.seeds or (cfg.exp.quick_seeds if args.quick else cfg.exp.n_eval_seeds)
-    return list(range(cfg.exp.eval_seed_offset, cfg.exp.eval_seed_offset + n))
+    if n > cfg.exp.n_eval_seeds:
+        raise SystemExit(f"--seeds {n} is more than the {cfg.exp.n_eval_seeds} evaluation seeds reserved in the config")
+    return protocol.evaluation_seeds(cfg, n)
 
 
-def policy_path(reward_variant: str, *, require_exists: bool = True) -> str:
+def resolve(reward_variant: str, cfg: Config) -> protocol.PolicyRecord:
+    """The checkpoint an experiment may use for this reward variant (checked against protocol.py)."""
     path = REPO_ROOT / POLICY_FILES[reward_variant]
-    if require_exists and not path.exists():
+    if not path.exists():
         raise SystemExit(f"Cannot find the {reward_variant} policy: {path}\n"
-                         f"Train it first (python train_mini_pacman_policy.py --reward {reward_variant}), "
-                         f"then put the path in POLICY_FILES in run_mini_pacman_experiments.py.")
-    return str(path)
+                         f"Train it first (python train_mini_pacman_policy.py --reward {reward_variant} --out ...), "
+                         f"then put the run directory in POLICY_FILES in run_mini_pacman_experiments.py.")
+    try:
+        record = protocol.resolve_policy(path, reward_variant, cfg)
+    except protocol.ProtocolError as e:
+        raise SystemExit(f"[protocol] {reward_variant}: {e}")
+    print(f"  policy {record.summary()}")
+    return record
+
+
+def policy_path(reward_variant: str, cfg: Config | None = None, *, require_exists: bool = True) -> str:
+    if not require_exists:
+        return str(REPO_ROOT / POLICY_FILES[reward_variant])
+    return str(resolve(reward_variant, cfg or default_config()).path)
 
 
 def exp1_conditions(cfg: Config, *, require_policies: bool = True) -> list[Condition]:
-    """Build Exp 1 conditions in their canonical reporting order."""
+    """Build Exp 1 conditions in their canonical reporting order (checks that the three policies are comparable)."""
+    if require_policies:
+        records = {rv: resolve(rv, cfg) for rv in cfg.exp.reward_variants}
+        try:
+            protocol.check_same_protocol(list(records.values()))
+        except protocol.ProtocolError as e:
+            raise SystemExit(f"[protocol] {e}")
+        paths = {rv: str(record.path) for rv, record in records.items()}
+    else:
+        paths = {rv: policy_path(rv, require_exists=False) for rv in cfg.exp.reward_variants}
     return [
         Condition(
             name=f"exp1_{reward_variant}_{'filter' if filter_mode else 'nofilter'}",
-            policy=policy_path(reward_variant, require_exists=require_policies),
+            policy=paths[reward_variant],
             reward_variant=reward_variant,
             filter_mode=filter_mode,
             replan="every_step",
@@ -101,7 +138,7 @@ def exp2_conditions(cfg: Config) -> list[Condition]:
 def exp3_conditions(cfg: Config, *, require_policies: bool = True) -> list[Condition]:
     """Build Exp 3 conditions in their canonical reporting order."""
     reward_variant = cfg.exp.exp3_reward_variant
-    policy = policy_path(reward_variant, require_exists=require_policies)
+    policy = policy_path(reward_variant, cfg, require_exists=require_policies)
     return [
         Condition(
             name="exp3_no_filter",
@@ -131,7 +168,8 @@ def run_conditions(conditions: list[Condition], exp_dir: Path, cfg: Config, args
     for c in conditions:
         t0 = time.time()
         print(f"  [{c.name}] {len(seeds)} seeds ...", flush=True)
-        episodes = run_condition(c, seeds, cfg, exp_dir / f"{c.name}.jsonl", args.device, resume=not args.force)
+        episodes = run_condition(c, seeds, cfg, exp_dir / f"{c.name}.jsonl", args.device, resume=not args.force,
+                                 workers=args.workers)
         row = {"condition": c.name, **c.to_dict(), **report.summarize(episodes, cfg.exp.height_buckets)}
         rows.append(row)
         print(f"  [{c.name}] done in {time.time() - t0:.0f} s; collision rate {row['collision_rate']:.3f} "
@@ -206,9 +244,15 @@ def part_check(cfg: Config, args, out_root: Path) -> None:
         except Exception as e:
             print(f"  [ERROR] {name}: {type(e).__name__}: {e}")
 
-    print("== Policy files (POLICY_FILES)")
+    print("== Policies (POLICY_FILES), checked against the training protocol")
     for rv, p in POLICY_FILES.items():
-        print(f"  {'[OK]     ' if (REPO_ROOT / p).exists() else '[MISSING]'} {rv}: {p}")
+        if not (REPO_ROOT / p).exists():
+            print(f"  [MISSING] {rv}: {p}")
+            continue
+        try:
+            print(f"  [OK]      {protocol.resolve_policy(REPO_ROOT / p, rv, cfg).summary()}")
+        except protocol.ProtocolError as e:
+            print(f"  [REFUSED] {rv}: {e}")
 
 
 def _has_attrs(module: str, cls: str, attrs: list[str]) -> None:
@@ -216,6 +260,54 @@ def _has_attrs(module: str, cls: str, attrs: list[str]) -> None:
     missing = [a for a in attrs if not hasattr(c, a)]
     if missing:
         raise NotImplementedError(missing)
+
+
+def part_select(cfg: Config, args, out_root: Path) -> None:
+    """Pick each run's checkpoint on the validation seeds (never the evaluation seeds), the same way for all three.
+
+    Candidates: every cfg.exp.select_every-th checkpoint plus the final one. Each is run on the validation seeds with
+    the filter off and truth ball information. Pick: protocol.SELECTION_CRITERION. Written to <run>/selection.json;
+    from then on Exp 1 / Exp 3 use that checkpoint (delete selection.json to go back to the final one).
+    """
+    from minipacman.evaluate import run_condition
+
+    seeds = protocol.validation_seeds(cfg)
+    protocol.check_seed_sets(cfg)
+    candidate_rule = f"every {cfg.exp.select_every} updates + final"
+    for rv in cfg.exp.reward_variants:
+        target = REPO_ROOT / POLICY_FILES[rv]
+        run_dir = target if target.is_dir() else target.parent
+        try:
+            manifest = protocol.read_manifest(run_dir)
+        except protocol.ProtocolError as e:
+            raise SystemExit(f"[protocol] {rv}: {e}")
+        final = protocol.final_label(manifest)
+        if not (run_dir / f"model_{final}.pt").is_file():
+            raise SystemExit(f"[protocol] {rv}: training in {run_dir} is not finished")
+        existing = protocol.read_selection(run_dir)
+        if existing and not args.force:
+            print(f"  {rv}: already selected {existing['checkpoint']} (use --force to redo)")
+            continue
+        labels = [k for k in range(cfg.exp.select_every, final, cfg.exp.select_every)
+                  if (run_dir / f"model_{k}.pt").is_file()] + [final]
+        rows = []
+        for label in labels:
+            c = Condition(name=f"select_{rv}_{label}", policy=str(run_dir / f"model_{label}.pt"), reward_variant=rv,
+                          filter_mode=None, ball_source="truth")
+            episodes = run_condition(c, seeds, cfg, out_root / "select" / rv / f"{c.name}.jsonl", args.device,
+                                     resume=not args.force, workers=args.workers)
+            stats = report.summarize(episodes, cfg.exp.height_buckets)
+            rows.append({"label": label, "checkpoint": f"model_{label}.pt", "success_rate": stats["success_rate"],
+                         "fall_rate": stats["fall_rate"], "collision_rate": stats["collision_rate"]})
+            print(f"  {rv} model_{label}: success {stats['success_rate']:.2f}, fall {stats['fall_rate']:.2f}, "
+                  f"collision {stats['collision_rate']:.2f}")
+        best = max(rows, key=lambda r: (r["success_rate"], -r["fall_rate"], -r["collision_rate"], r["label"]))
+        selection = {"rule": "validation", "checkpoint": best["checkpoint"], "label": best["label"],
+                     "seeds": [seeds[0], len(seeds)], "criterion": protocol.SELECTION_CRITERION,
+                     "candidate_rule": candidate_rule, "candidates": rows,
+                     "created": time.strftime("%Y-%m-%d %H:%M:%S")}
+        (run_dir / protocol.SELECTION).write_text(json.dumps(selection, indent=2), encoding="utf-8")
+        print(f"  {rv}: picked {best['checkpoint']} -> {run_dir / protocol.SELECTION}")
 
 
 def part_exp1(cfg: Config, args, out_root: Path) -> list[dict]:
@@ -325,9 +417,10 @@ def main() -> None:
     ap.add_argument("--video-seeds", nargs="+", type=int, default=None,
                     help="exact seeds to record (default: the first evaluation seed only)")
     ap.add_argument("--video-fps", type=int, default=25, help="recording frame rate (default: 25)")
+    ap.add_argument("--workers", type=int, default=1, help="evaluate seeds in this many parallel processes")
     args = ap.parse_args()
 
-    parts = PARTS if "all" in args.part else tuple(p for p in PARTS if p in args.part)
+    parts = ALL_PARTS if "all" in args.part else tuple(p for p in PARTS if p in args.part)
     experiment_parts = tuple(part for part in parts if part in {"exp1", "exp2", "exp3"})
     if args.video_seeds is not None and not args.record_video:
         ap.error("--video-seeds requires --record-video")
@@ -351,7 +444,8 @@ def main() -> None:
                          "args": {k: str(v) for k, v in vars(args).items()},
                          "policy_files": POLICY_FILES, "device": info, "config": cfg.to_dict()},
                         args.out / "run_info.jsonl")
-    funcs = {"check": part_check, "exp1": part_exp1, "exp2": part_exp2, "exp3": part_exp3, "summary": part_summary}
+    funcs = {"check": part_check, "select": part_select, "exp1": part_exp1, "exp2": part_exp2, "exp3": part_exp3,
+             "summary": part_summary}
     for p in parts:
         print(f"\n######## {p} ########")
         try:

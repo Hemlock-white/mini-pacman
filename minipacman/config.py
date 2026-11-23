@@ -80,19 +80,27 @@ class RobotConfig:
 
 @dataclass
 class LQRConfig:
-    """LQR balance controller weights ([prototype] tita_core.py, verified on AUP)."""
+    """LQR balance controller weights ([prototype] tita_core.py, verified on AUP).
+
+    [stress test 2026-11-23] Random high-level commands (no balls, 20 s episodes) made the prototype weights fall in
+    26/28 episodes: in deep crouch the pitch oscillated with growing amplitude (wheels leaving the floor), and with
+    frequent speed changes the reference position ran away from the robot. More pitch-rate / speed damping plus a cap
+    on the forward position error gave 0/28 falls for both random and extreme-switching commands.
+    """
     q_default: float = 1e-3
     q_pos_x: float = 20.0
     q_pitch: float = 200.0
     q_yaw: float = 20.0
-    q_vel_x: float = 2.0
-    q_pitch_rate: float = 2.0
+    q_vel_x: float = 10.0              # [stress test] prototype 2.0
+    q_pitch_rate: float = 40.0         # [stress test] prototype 2.0
     q_yaw_rate: float = 1.0
     r_wheel: float = 0.5
     discount: float = 0.9999           # lateral position is uncontrollable; a small discount lets the DARE be solved
     fd_eps: float = 1e-6               # finite-difference step for mjd_transitionFD
     zero_abad_gains: bool = True       # zero the hip-roll (abad) gains; the original ±30000 came from the stiff contact
     zero_frictionloss_when_linearizing: bool = True
+    # m: the reference position is kept within this distance of the robot (ReferenceGenerator.leash; None = off)
+    max_position_error: float | None = 0.1    # [stress test]
 
 
 @dataclass
@@ -104,9 +112,11 @@ class CommandConfig:
     Safe envelope [prototype, measured on a laptop with MuJoCo 4.0.1; check again on AUP]:
     the lower the robot crouches, the slower it can drive safely. Measured: at s=1, v=0.5 pitches
     to 50 degrees and v=0.8 while turning falls over; at s=0.5, v=0.5 and w=2 peak at about 19 degrees.
-    So the speed limits drop linearly with s.
+    So the speed limits drop linearly with s (forward, reverse and turning), and ReferenceGenerator only lets the
+    robot crouch as far as its current reference speeds allow (lqr.max_crouch_for).
     """
-    v_min: float = -0.5                # it can reverse
+    v_min: float = -0.5                # it can reverse (standing)
+    v_min_crouch: float = -0.15        # reverse limit at s=1 (the reverse limit also shrinks with s)
     v_max_stand: float = 0.8
     v_max_crouch: float = 0.3
     w_max_stand: float = 2.0           # rad/s
@@ -114,6 +124,7 @@ class CommandConfig:
     sdot_max: float = 1.0 / 0.3        # 0.3 s from standing to full crouch [prototype duck 0.3 s]
     accel_limit: float = 1.5           # m/s^2, max change rate of the speed command (too abrupt and the LQR falls)
     yaw_accel_limit: float = 6.0       # rad/s^2
+    crouch_lookahead: float = 0.3      # s: a crouch request also limits (v, w) to the level this far ahead (crouch_first)
     speed_lag_tau: float = 0.16        # [prototype] 0.36 s to reach 90% speed, roughly a first-order lag with tau = 0.16 s
 
 
@@ -257,7 +268,10 @@ class CBFConfig:
     filter_margin: float = 0.05
     horizon: float = 1.5               # how far ahead to predict collisions (s)
     lag_tau_naive: float = 0.0         # naive: assume the speed changes instantly
-    lag_tau_aware: float = 0.16        # lag-aware: use CommandConfig.speed_lag_tau
+    # lag-aware: ReferenceGenerator's rate limits + crouch coupling, then this first-order lag between the reference
+    # speed and the actual speed [measured 2026-11-23 with the stress-tested LQR: 0.26 s standing, 0.22 s at s=0.6]
+    lag_tau_aware: float = 0.24
+    switch_weight: float = 0.5         # penalty on changing the filter's output between steps (stops chattering)
 
 
 @dataclass
@@ -339,7 +353,11 @@ class PPOConfig:
 class ExperimentConfig:
     """Experiment settings."""
     n_eval_seeds: int = 100
-    eval_seed_offset: int = 10_000     # evaluation seeds 10000-10099, never used in training
+    eval_seed_offset: int = 10_000     # evaluation seeds 10000-10099, never used in training or to pick anything
+    # Validation seeds: the only seeds allowed for picking a checkpoint (--part select); see protocol.py
+    val_seed_offset: int = 20_000
+    n_val_seeds: int = 20
+    select_every: int = 500            # --part select compares every 500th checkpoint plus the final one
     quick_seeds: int = 5               # seeds used with --quick
     reward_variants: tuple = ("task", "task_collision", "task_cbf")
     # Exp 1: each policy with the filter off / on; which filter version, and where its ball info comes from

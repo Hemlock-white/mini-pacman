@@ -260,6 +260,9 @@ class DodgeEnv:
             self.seed = int(seed)
             self._reset_rngs(self.seed)
         stand = self.lqr.leg_poses["stand"]
+        # Full MuJoCo reset first (solver warm-start, actuator state, time, ...), so an episode only depends on its
+        # seed and not on what ran before it in this env object (evaluation reuses one env for many seeds).
+        mujoco.mj_resetData(self.m, self.d)
         self.env.reset(*stand)
         initial = self.env.planar_state(0.0)
         self.ref.reset(initial.xy, initial.yaw)
@@ -325,13 +328,15 @@ class DodgeEnv:
             )
 
         new_hits = []
+        root = self.env.root_qadr
         for _ in range(self.cfg.sim.policy_every):
-            reference = self.ref.update(u_safe, self.cfg.sim.timestep)
-            self.env.set_leg_targets(self.lqr.leg_targets(reference.s))
             if self.estimator is None:
                 qpos, qvel = self.d.qpos, self.d.qvel
             else:
                 qpos, qvel = self._q_estimate, self._v_estimate
+            self.ref.leash(qpos[root:root + 2], self.cfg.lqr.max_position_error)
+            reference = self.ref.update(u_safe, self.cfg.sim.timestep)
+            self.env.set_leg_targets(self.lqr.leg_targets(reference.s))
             self.env.set_wheel_torques(self.lqr.wheel_torques(qpos, qvel, reference))
             self.env.step()
             new_hits.extend(self.launcher.check_contacts())

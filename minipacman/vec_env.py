@@ -31,69 +31,30 @@ Suggested structure
     MiniPacmanVecEnv: start num_workers subprocesses (multiprocessing.get_context("spawn"), works on Windows and
         Linux), split the num_envs environments evenly between them; on step, send each its slice of actions, then
         stitch the returned numpy arrays together and convert to torch.
-    Seed of each environment: base_seed * 100000 + env_index; between episodes each environment keeps using its own rng.
+    Seed of each environment: protocol.train_env_seed(base_seed, env_index) = base_seed * 100000 + env_index; between
+    episodes each environment keeps using its own rng. The workers live in vec_worker.py (no torch import there) and
+    start with one math thread each.
 """
 from __future__ import annotations
 
 import math
 import multiprocessing as mp
 import os
-import traceback
 
 import numpy as np
 import torch
 from tensordict import TensorDict
 
 from .config import Config
-from .dodge_env import ACTION_DIM, DodgeEnv
+from .dodge_env import ACTION_DIM
+from .protocol import train_env_seed
 from .scene import build_scene
+from .vec_worker import env_worker, single_threaded_children
 
 try:
     from rsl_rl.env import VecEnv
 except ImportError:          # so other modules can still be imported before rsl_rl is installed
     VecEnv = object
-
-
-def _worker(conn, cfg: Config, reward_variant: str, env_specs: list[dict]) -> None:
-    """Own a small group of MuJoCo environments in one subprocess."""
-    try:
-        envs = [DodgeEnv(cfg, reward_variant=reward_variant, **spec) for spec in env_specs]
-        observations = [env.reset() for env in envs]
-        while True:
-            command, payload = conn.recv()
-            if command == "observations":
-                conn.send(("ok", observations))
-            elif command == "step":
-                batch = []
-                for env, action in zip(envs, payload):
-                    observation, reward, terminated, truncated, info = env.step(action)
-                    done = bool(terminated or truncated)
-                    summary = info.get("episode") if done else None
-                    if done:
-                        observation = env.reset()
-                    batch.append((
-                        observation,
-                        float(reward),
-                        done,
-                        bool(truncated and not terminated),
-                        summary,
-                    ))
-                observations = [item[0] for item in batch]
-                conn.send(("ok", batch))
-            elif command == "close":
-                conn.send(("ok", None))
-                break
-            else:
-                raise ValueError(f"unknown worker command: {command!r}")
-    except (EOFError, BrokenPipeError):
-        pass
-    except BaseException:
-        try:
-            conn.send(("error", traceback.format_exc()))
-        except (EOFError, BrokenPipeError):
-            pass
-    finally:
-        conn.close()
 
 
 class MiniPacmanVecEnv(VecEnv):
@@ -132,15 +93,16 @@ class MiniPacmanVecEnv(VecEnv):
                 specs = []
                 for env_index in indices:
                     spec = dict(env_kwargs)
-                    spec["seed"] = int(seed) * 100_000 + int(env_index)
+                    spec["seed"] = train_env_seed(seed, env_index)
                     spec.setdefault("scene_path", scene_path)
                     specs.append(spec)
                 process = context.Process(
-                    target=_worker,
+                    target=env_worker,
                     args=(child, cfg, reward_variant, specs),
                     daemon=True,
                 )
-                process.start()
+                with single_threaded_children():
+                    process.start()
                 child.close()
                 self._connections.append(parent)
                 self._processes.append(process)
