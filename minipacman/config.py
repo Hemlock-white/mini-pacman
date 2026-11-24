@@ -332,10 +332,14 @@ class PPOConfig:
     # A unit Gaussian immediately saturates all three normalized commands and made the
     # robot spin instead of exploring forward motion.  Start locally around the mean.
     init_std: float = 0.2
-    # Adaptive KL scheduling reached its 1e-5 floor after two iterations in the first
-    # full run.  A conservative fixed rate keeps useful updates going.
+    # feature/ppo-kl is the KL control group for feature/ppo-tuning: the ONLY difference is
+    # schedule = "adaptive" (ppo-tuning: "fixed" at 3e-4).  The earlier note "adaptive KL hit its 1e-5
+    # floor after two iterations" came from the first full run on the old code (unstable LQR,
+    # init_std 1.0, entropy 0.005), so adaptive was never tried fairly with the current settings.
+    # rsl_rl 5.4.0 adapts the rate every minibatch: /1.5 if KL > 2*desired_kl, *1.5 if KL < desired_kl/2,
+    # kept in [1e-5, 1e-2].  learning_rate is only the starting value.  See docs/training_protocol.md.
     learning_rate: float = 3e-4
-    schedule: str = "fixed"
+    schedule: str = "adaptive"
     desired_kl: float = 0.01
     clip_param: float = 0.2
     # The original 0.005 drove action std past 0.5 and destabilized walking,

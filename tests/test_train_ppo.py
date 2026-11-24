@@ -10,17 +10,78 @@ from minipacman.train_ppo import make_train_cfg
 def test_make_train_cfg_has_asymmetric_observations(cfg):
     train_cfg = make_train_cfg(cfg, "task_cbf")
     assert train_cfg["obs_groups"] == {"actor": ["actor"], "critic": ["critic"]}
-    assert train_cfg["algorithm"]["class_name"] == "rsl_rl.algorithms.PPO"
+    assert train_cfg["algorithm"]["class_name"] == "minipacman.ppo_logging:KLLoggingPPO"
     assert train_cfg["experiment_name"] == "mini_pacman_task_cbf"
     assert train_cfg["actor"]["hidden_dims"] == list(cfg.ppo.hidden_dims)
     assert train_cfg["actor"]["distribution_cfg"]["init_std"] == pytest.approx(0.2)
     assert train_cfg["algorithm"]["learning_rate"] == pytest.approx(3e-4)
-    assert train_cfg["algorithm"]["schedule"] == "fixed"
+    assert train_cfg["algorithm"]["schedule"] == "adaptive"
     assert train_cfg["algorithm"]["entropy_coef"] == pytest.approx(0.001)
     assert cfg.reward.progress_weight == pytest.approx(10.0)
     assert cfg.reward.goal_bonus == pytest.approx(50.0)
     assert cfg.reward.collision_penalty == pytest.approx(100.0)
     assert cfg.cbf.reward_weight == pytest.approx(1.0)
+
+
+def test_make_train_cfg_is_the_kl_control_group(cfg):
+    """feature/ppo-kl differs from feature/ppo-tuning only in the schedule: rsl_rl gets adaptive + desired_kl."""
+    train_cfg = make_train_cfg(cfg, "task")
+    alg = train_cfg["algorithm"]
+    assert alg["schedule"] == "adaptive"
+    assert alg["desired_kl"] == pytest.approx(0.01)
+    assert alg["learning_rate"] == pytest.approx(3e-4)         # starting value; the schedule moves it
+    # everything else as in feature/ppo-tuning (6203dcc)
+    assert alg["entropy_coef"] == pytest.approx(0.001)
+    assert alg["num_learning_epochs"] == 5 and alg["num_mini_batches"] == 4
+    assert alg["clip_param"] == pytest.approx(0.2) and alg["max_grad_norm"] == pytest.approx(1.0)
+    assert alg["gamma"] == pytest.approx(0.99) and alg["lam"] == pytest.approx(0.95)
+    assert alg["value_loss_coef"] == pytest.approx(1.0)
+    assert train_cfg["actor"]["distribution_cfg"]["init_std"] == pytest.approx(0.2)
+    assert train_cfg["num_steps_per_env"] == 24
+    assert (cfg.ppo.num_envs, cfg.ppo.max_iterations) == (256, 5000)
+
+
+def test_kl_logging_ppo_reports_mean_kl_and_lr_and_trains_like_ppo(cfg):
+    """KLLoggingPPO must only add loss_dict['mean_kl'] and ['lr_mean']: same networks after an update as rsl_rl's PPO."""
+    import torch
+    from rsl_rl.algorithms import PPO
+    from tensordict import TensorDict
+
+    class Env:
+        num_envs, num_actions = 8, 3
+
+    def one_update(class_name, lrs=None):
+        torch.manual_seed(0)
+        train_cfg = make_train_cfg(cfg, "task")
+        train_cfg["algorithm"]["class_name"] = class_name
+        train_cfg["multi_gpu"] = None
+        obs = TensorDict({"actor": torch.randn(8, 6), "critic": torch.randn(8, 7)}, batch_size=[8])
+        alg = PPO.construct_algorithm(obs, Env(), train_cfg, "cpu")
+        if lrs is not None:                                      # the lr of every gradient step of rsl_rl's PPO
+            alg.optimizer.register_step_pre_hook(lambda opt, args, kwargs: lrs.append(opt.param_groups[0]["lr"]))
+        with torch.inference_mode():
+            for _ in range(train_cfg["num_steps_per_env"]):
+                alg.act(obs)
+                obs = TensorDict({"actor": torch.randn(8, 6), "critic": torch.randn(8, 7)}, batch_size=[8])
+                alg.process_env_step(obs, torch.randn(8), torch.zeros(8, dtype=torch.long), {})
+            alg.compute_returns(obs)
+        losses = alg.update()
+        return alg, losses
+
+    base_lrs = []
+    base, base_losses = one_update("rsl_rl.algorithms.PPO", base_lrs)
+    logged, logged_losses = one_update("minipacman.ppo_logging:KLLoggingPPO")
+    added = {"mean_kl", "lr_mean"}
+    assert not added & base_losses.keys() and logged_losses["mean_kl"] > 0
+    assert len(base_lrs) == 5 * 4                               # one gradient step per minibatch
+    assert logged_losses["lr_mean"] == pytest.approx(sum(base_lrs) / len(base_lrs))
+    assert {k: v for k, v in logged_losses.items() if k not in added} == base_losses
+    assert logged.learning_rate == base.learning_rate
+    for a, b in zip(list(base.actor.parameters()) + list(base.critic.parameters()),
+                    list(logged.actor.parameters()) + list(logged.critic.parameters())):
+        assert torch.equal(a, b)
+    assert "get_kl_divergence" not in vars(logged.actor)       # the recording hooks are removed again
+    assert not logged.optimizer._optimizer_step_pre_hooks
 
 
 def _fake_rsl_rl(monkeypatch, calls, crash_after=None):

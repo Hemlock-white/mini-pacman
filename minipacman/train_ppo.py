@@ -60,7 +60,8 @@ def make_train_cfg(cfg: Config, reward_variant: str) -> dict:
                                        "init_std": p.init_std, "std_type": "scalar"}},
         "critic": {"class_name": "rsl_rl.models.MLPModel", **model},
         "algorithm": {
-            "class_name": "rsl_rl.algorithms.PPO",
+            # rsl_rl's PPO plus Loss/mean_kl and Loss/lr_mean in TensorBoard; training is identical (ppo_logging.py)
+            "class_name": "minipacman.ppo_logging:KLLoggingPPO",
             "num_learning_epochs": p.num_learning_epochs,
             "num_mini_batches": p.num_mini_batches,
             "clip_param": p.clip_param,

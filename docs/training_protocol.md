@@ -2,6 +2,46 @@
 
 Written 2026-11-23, after reviewing the first round of results. Read this before training or evaluating.
 
+## This branch: `feature/ppo-kl`, the KL control group (2026-11-24)
+
+Branched from `feature/ppo-tuning` at `6203dcc`. **The only training difference is the learning-rate schedule:**
+
+| | `feature/ppo-tuning` | `feature/ppo-kl` |
+|---|---|---|
+| `PPOConfig.schedule` | `fixed` | `adaptive` |
+| `PPOConfig.desired_kl` | 0.01 (unused) | 0.01 |
+| `PPOConfig.learning_rate` | 3e-4 throughout | 3e-4 at the start, then set by the KL |
+
+`init_std`, `entropy_coef`, epochs, minibatches, rewards, environment, protocol and seeds are the same.
+
+Why: with the fixed 3e-4, `task` and `task_collision` collapsed after about 2000 and 4000 iterations (`task_cbf`
+didn't). The old note "adaptive KL hit its 1e-5 floor after two iterations" came from the first full run on the old
+code (unstable LQR, `init_std` 1.0, `entropy_coef` 0.005), so the adaptive schedule was never tried fairly.
+
+How rsl_rl 5.4.0 adapts the rate (`rsl_rl/algorithms/ppo.py`, `PPO.update`): for **every minibatch** (5 epochs x 4
+= 20 times per iteration) it computes KL(old || new) of the Gaussian policy, summed over the 3 actions and averaged
+over the minibatch, before that minibatch's gradient step. KL > 0.02 divides the rate by 1.5, KL < 0.005 multiplies
+it by 1.5, and the rate stays within [1e-5, 1e-2].
+
+What to watch in TensorBoard:
+* `Loss/lr_mean`: the average rate of the 20 gradient steps of the iteration (added in this branch by
+  `minipacman/ppo_logging.py`; training is unchanged). **This is the one to read.** Sitting at 1e-5 means the
+  schedule has stopped learning.
+* `Loss/learning_rate`: only the rate after the last minibatch (rsl_rl logs it already). It is misleading here: the
+  KL is measured against the rollout policy, so it grows within an iteration; the rate climbs (x1.5 per minibatch)
+  while the KL is small and falls back (/1.5) once it passes 0.02. In the 40-iteration smoke test (task, seed 0,
+  256 envs) this value was 1e-5 from iteration 2 on, while the rate inside iterations 5-34 had a median of 7.6e-5.
+* `Loss/mean_kl`: the average of the 20 minibatch KLs (also added by `ppo_logging.py`). Around 0.005-0.02 is the
+  band where the rate holds still.
+
+Early check: `feature/ppo-tuning`'s `task` run reached a validation success rate of 0.75 at `model_500`. If this
+branch's `task` run still shows no `/episode/success_rate` after about 500 iterations, stop and look before
+training the other two rewards.
+
+Keep these runs apart from `feature/ppo-tuning`'s: train in a separate worktree (each worktree has its own
+`outputs/`). The config fingerprint includes the schedule, so the experiments refuse a mix of runs from the two
+branches.
+
 ## What went wrong in round 1, and what the code does now
 
 | Round 1 problem | What the code does now |
