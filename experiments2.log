@@ -1,0 +1,85 @@
+/home/itri/Desktop/minfeng/mini-pacman/run_mini_pacman_experiments.py:441: UserWarning: This run is NOT on an AMD ROCm GPU (device=cuda:0, gpu=NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition, hip=None). Under the course rules these results can't go in the report; use them for development and debugging only.
+  warn_if_not_rocm(info)
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+This run is NOT on an AMD ROCm GPU (device=cuda:0, gpu=NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition, hip=None). Under the course rules these results can't go in the report; use them for development and debugging only.
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+######## exp1 ########
+/home/itri/Desktop/minfeng/mini-pacman/run_mini_pacman_experiments.py:83: UserWarning: /home/itri/Desktop/minfeng/mini-pacman/outputs/policies/task/run1 was not trained on AMD ROCm; the course rules don't accept it in the report
+  record = protocol.resolve_policy(path, reward_variant, cfg)
+  policy task: model_500.pt (validation), seed 0, 5000 updates, 256 envs, config 536ff241d3e4a212, ROCm False
+/home/itri/Desktop/minfeng/mini-pacman/run_mini_pacman_experiments.py:83: UserWarning: /home/itri/Desktop/minfeng/mini-pacman/outputs/policies/task_collision/run1 was not trained on AMD ROCm; the course rules don't accept it in the report
+  record = protocol.resolve_policy(path, reward_variant, cfg)
+  policy task_collision: model_3000.pt (validation), seed 0, 5000 updates, 256 envs, config 536ff241d3e4a212, ROCm False
+/home/itri/Desktop/minfeng/mini-pacman/run_mini_pacman_experiments.py:83: UserWarning: /home/itri/Desktop/minfeng/mini-pacman/outputs/policies/task_cbf/run1 was not trained on AMD ROCm; the course rules don't accept it in the report
+  record = protocol.resolve_policy(path, reward_variant, cfg)
+  policy task_cbf: model_3500.pt (validation), seed 0, 5000 updates, 256 envs, config 536ff241d3e4a212, ROCm False
+  [exp1_task_nofilter] 100 seeds ...
+  [exp1_task_nofilter] 100 saved episodes came from another checkpoint or config (or an older version of this script); running them again
+  [exp1_task_nofilter] done in 24 s; collision rate 0.827 [0.780, 0.865], success rate 0.600
+  [exp1_task_filter] 100 seeds ...
+  [exp1_task_filter] 100 saved episodes came from another checkpoint or config (or an older version of this script); running them again
+  [exp1_task_filter] done in 29 s; collision rate 0.610 [0.554, 0.663], success rate 0.520
+  [exp1_task_collision_nofilter] 100 seeds ...
+  [exp1_task_collision_nofilter] 100 saved episodes came from another checkpoint or config (or an older version of this script); running them again
+  [exp1_task_collision_nofilter] done in 24 s; collision rate 0.767 [0.716, 0.811], success rate 0.950
+  [exp1_task_collision_filter] 100 seeds ...
+  [exp1_task_collision_filter] 100 saved episodes came from another checkpoint or config (or an older version of this script); running them again
+  [exp1_task_collision_filter] done in 29 s; collision rate 0.480 [0.424, 0.536], success rate 0.940
+  [exp1_task_cbf_nofilter] 100 seeds ...
+  [exp1_task_cbf_nofilter] 100 saved episodes came from another checkpoint or config (or an older version of this script); running them again
+  [exp1_task_cbf_nofilter] done in 24 s; collision rate 0.710 [0.656, 0.758], success rate 0.990
+  [exp1_task_cbf_filter] 100 seeds ...
+  [exp1_task_cbf_filter] 100 saved episodes came from another checkpoint or config (or an older version of this script); running them again
+  [exp1_task_cbf_filter] done in 28 s; collision rate 0.523 [0.467, 0.579], success rate 1.000
+   condition  success_rate  collision_rate  collision_rate_lo  collision_rate_hi  min_clearance_median  intervention_mean
+exp1_task_nofilter         0.600           0.827              0.780              0.865                -0.001                nan
+exp1_task_filter         0.520           0.610              0.554              0.663                 0.000              0.091
+exp1_task_collision_nofilter         0.950           0.767              0.716              0.811                 0.000                nan
+exp1_task_collision_filter         0.940           0.480              0.424              0.536                 0.021              0.123
+exp1_task_cbf_nofilter         0.990           0.710              0.656              0.758                 0.000                nan
+exp1_task_cbf_filter         1.000           0.523              0.467              0.579                 0.000              0.122
+  plots: /home/itri/Desktop/minfeng/mini-pacman/outputs/results/exp1/exp1_*.png
+
+######## exp3 ########
+/home/itri/Desktop/minfeng/mini-pacman/run_mini_pacman_experiments.py:83: UserWarning: /home/itri/Desktop/minfeng/mini-pacman/outputs/policies/task_cbf/run1 was not trained on AMD ROCm; the course rules don't accept it in the report
+  record = protocol.resolve_policy(path, reward_variant, cfg)
+  policy task_cbf: model_3500.pt (validation), seed 0, 5000 updates, 256 envs, config 536ff241d3e4a212, ROCm False
+  [exp3_no_filter] 100 seeds ...
+  [exp3_no_filter] 100 saved episodes came from another checkpoint or config (or an older version of this script); running them again
+  [exp3_no_filter] done in 24 s; collision rate 0.710 [0.656, 0.758], success rate 0.990
+  [exp3_truth] 100 seeds ...
+  [exp3_truth] 100 saved episodes came from another checkpoint or config (or an older version of this script); running them again
+  [exp3_truth] done in 29 s; collision rate 0.523 [0.467, 0.579], success rate 1.000
+  [exp3_noisy_truth] 100 seeds ...
+  [exp3_noisy_truth] 100 saved episodes came from another checkpoint or config (or an older version of this script); running them again
+  [exp3_noisy_truth] done in 28 s; collision rate 0.570 [0.513, 0.625], success rate 0.990
+  [exp3_depth_tracker] 100 seeds ...
+  [exp3_depth_tracker] 100 saved episodes came from another checkpoint or config (or an older version of this script); running them again
+  [exp3_depth_tracker] done in 27 s; collision rate 0.563 [0.507, 0.618], success rate 1.000
+   condition  success_rate  collision_rate  collision_rate_lo  collision_rate_hi  min_clearance_median  intervention_mean
+exp3_no_filter         0.990           0.710              0.656              0.758                 0.000                nan
+  exp3_truth         1.000           0.523              0.467              0.579                 0.000              0.122
+exp3_noisy_truth         0.990           0.570              0.513              0.625                 0.000              0.107
+exp3_depth_tracker         1.000           0.563              0.507              0.618                 0.000              0.071
+  plots: /home/itri/Desktop/minfeng/mini-pacman/outputs/results/exp3/exp3_*.png
+
+######## summary ########
+== exp1
+   condition  success_rate  collision_rate  collision_rate_lo  collision_rate_hi  min_clearance_median  intervention_mean
+exp1_task_nofilter         0.600           0.827              0.780              0.865                -0.001                nan
+exp1_task_filter         0.520           0.610              0.554              0.663                 0.000              0.091
+exp1_task_collision_nofilter         0.950           0.767              0.716              0.811                 0.000                nan
+exp1_task_collision_filter         0.940           0.480              0.424              0.536                 0.021              0.123
+exp1_task_cbf_nofilter         0.990           0.710              0.656              0.758                 0.000                nan
+exp1_task_cbf_filter         1.000           0.523              0.467              0.579                 0.000              0.122
+== exp2
+   condition  success_rate  collision_rate  collision_rate_lo  collision_rate_hi  min_clearance_median  intervention_mean
+  exp2_naive         1.000           0.703              0.649              0.752                 0.000              0.132
+exp2_lag_aware         1.000           0.590              0.534              0.644                 0.000              0.122
+== exp3
+   condition  success_rate  collision_rate  collision_rate_lo  collision_rate_hi  min_clearance_median  intervention_mean
+exp3_no_filter         0.990           0.710              0.656              0.758                 0.000                nan
+  exp3_truth         1.000           0.523              0.467              0.579                 0.000              0.122
+exp3_noisy_truth         0.990           0.570              0.513              0.625                 0.000              0.107
+exp3_depth_tracker         1.000           0.563              0.507              0.618                 0.000              0.071

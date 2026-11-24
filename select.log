@@ -1,0 +1,40 @@
+/home/itri/Desktop/minfeng/mini-pacman/run_mini_pacman_experiments.py:441: UserWarning: This run is NOT on an AMD ROCm GPU (device=cuda:0, gpu=NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition, hip=None). Under the course rules these results can't go in the report; use them for development and debugging only.
+  warn_if_not_rocm(info)
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+This run is NOT on an AMD ROCm GPU (device=cuda:0, gpu=NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition, hip=None). Under the course rules these results can't go in the report; use them for development and debugging only.
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+######## select ########
+  task model_500: success 0.75, fall 0.00, collision 0.84
+  task model_1000: success 0.70, fall 0.00, collision 0.82
+  task model_1500: success 0.60, fall 0.00, collision 0.84
+  task model_2000: success 0.00, fall 0.00, collision 0.95
+  task model_2500: success 0.00, fall 0.00, collision 0.95
+  task model_3000: success 0.00, fall 0.00, collision 0.95
+  task model_3500: success 0.00, fall 0.00, collision 0.95
+  task model_4000: success 0.00, fall 0.00, collision 0.95
+  task model_4500: success 0.00, fall 0.00, collision 0.95
+  task model_4999: success 0.00, fall 0.00, collision 0.95
+  task: picked model_500.pt -> /home/itri/Desktop/minfeng/mini-pacman/outputs/policies/task/run1/selection.json
+  task_collision model_500: success 0.15, fall 0.00, collision 0.73
+  task_collision model_1000: success 0.90, fall 0.00, collision 0.77
+  task_collision model_1500: success 0.70, fall 0.00, collision 0.71
+  task_collision model_2000: success 0.85, fall 0.00, collision 0.71
+  task_collision model_2500: success 0.95, fall 0.00, collision 0.68
+  task_collision model_3000: success 1.00, fall 0.00, collision 0.82
+  task_collision model_3500: success 0.30, fall 0.00, collision 0.77
+  task_collision model_4000: success 0.00, fall 0.00, collision 0.95
+  task_collision model_4500: success 0.00, fall 0.00, collision 0.95
+  task_collision model_4999: success 0.00, fall 0.00, collision 0.95
+  task_collision: picked model_3000.pt -> /home/itri/Desktop/minfeng/mini-pacman/outputs/policies/task_collision/run1/selection.json
+  task_cbf model_500: success 0.00, fall 0.00, collision 0.79
+  task_cbf model_1000: success 0.75, fall 0.00, collision 0.88
+  task_cbf model_1500: success 0.80, fall 0.00, collision 0.88
+  task_cbf model_2000: success 1.00, fall 0.00, collision 0.82
+  task_cbf model_2500: success 1.00, fall 0.00, collision 0.86
+  task_cbf model_3000: success 1.00, fall 0.00, collision 0.80
+  task_cbf model_3500: success 1.00, fall 0.00, collision 0.66
+  task_cbf model_4000: success 1.00, fall 0.00, collision 0.82
+  task_cbf model_4500: success 1.00, fall 0.00, collision 0.86
+  task_cbf model_4999: success 1.00, fall 0.00, collision 0.73
+  task_cbf: picked model_3500.pt -> /home/itri/Desktop/minfeng/mini-pacman/outputs/policies/task_cbf/run1/selection.json

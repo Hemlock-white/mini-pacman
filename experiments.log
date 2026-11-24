@@ -1,0 +1,126 @@
+/home/itri/Desktop/minfeng/mini-pacman/run_mini_pacman_experiments.py:441: UserWarning: This run is NOT on an AMD ROCm GPU (device=cuda:0, gpu=NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition, hip=None). Under the course rules these results can't go in the report; use them for development and debugging only.
+  warn_if_not_rocm(info)
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+This run is NOT on an AMD ROCm GPU (device=cuda:0, gpu=NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition, hip=None). Under the course rules these results can't go in the report; use them for development and debugging only.
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+######## exp1 ########
+/home/itri/Desktop/minfeng/mini-pacman/run_mini_pacman_experiments.py:83: UserWarning: /home/itri/Desktop/minfeng/mini-pacman/outputs/policies/task/run1 was not trained on AMD ROCm; the course rules don't accept it in the report
+  record = protocol.resolve_policy(path, reward_variant, cfg)
+  policy task: model_4999.pt (final), seed 0, 5000 updates, 256 envs, config 536ff241d3e4a212, ROCm False
+/home/itri/Desktop/minfeng/mini-pacman/run_mini_pacman_experiments.py:83: UserWarning: /home/itri/Desktop/minfeng/mini-pacman/outputs/policies/task_collision/run1 was not trained on AMD ROCm; the course rules don't accept it in the report
+  record = protocol.resolve_policy(path, reward_variant, cfg)
+  policy task_collision: model_4999.pt (final), seed 0, 5000 updates, 256 envs, config 536ff241d3e4a212, ROCm False
+/home/itri/Desktop/minfeng/mini-pacman/run_mini_pacman_experiments.py:83: UserWarning: /home/itri/Desktop/minfeng/mini-pacman/outputs/policies/task_cbf/run1 was not trained on AMD ROCm; the course rules don't accept it in the report
+  record = protocol.resolve_policy(path, reward_variant, cfg)
+  policy task_cbf: model_4999.pt (final), seed 0, 5000 updates, 256 envs, config 536ff241d3e4a212, ROCm False
+  [exp1_task_nofilter] 100 seeds ...
+  [exp1_task_nofilter] done in 0 s; collision rate 0.900 [0.861, 0.929], success rate 0.000
+  [exp1_task_filter] 100 seeds ...
+  [exp1_task_filter] done in 0 s; collision rate 0.627 [0.571, 0.679], success rate 0.000
+  [exp1_task_collision_nofilter] 100 seeds ...
+  [exp1_task_collision_nofilter] done in 0 s; collision rate 0.917 [0.880, 0.943], success rate 0.000
+  [exp1_task_collision_filter] 100 seeds ...
+  [exp1_task_collision_filter] done in 0 s; collision rate 0.610 [0.554, 0.663], success rate 0.000
+  [exp1_task_cbf_nofilter] 100 seeds ...
+  [exp1_task_cbf_nofilter] done in 0 s; collision rate 0.733 [0.681, 0.780], success rate 0.990
+  [exp1_task_cbf_filter] 100 seeds ...
+  [exp1_task_cbf_filter] done in 0 s; collision rate 0.513 [0.457, 0.569], success rate 0.990
+   condition  success_rate  collision_rate  collision_rate_lo  collision_rate_hi  min_clearance_median  intervention_mean
+exp1_task_nofilter         0.000           0.900              0.861              0.929                -0.003                nan
+exp1_task_filter         0.000           0.627              0.571              0.679                 0.000              0.173
+exp1_task_collision_nofilter         0.000           0.917              0.880              0.943                -0.002                nan
+exp1_task_collision_filter         0.000           0.610              0.554              0.663                 0.000              0.172
+exp1_task_cbf_nofilter         0.990           0.733              0.681              0.780                 0.000                nan
+exp1_task_cbf_filter         0.990           0.513              0.457              0.569                 0.000              0.123
+  plots: /home/itri/Desktop/minfeng/mini-pacman/outputs/results/exp1/exp1_*.png
+
+######## exp2 ########
+  [exp2_naive] 100 seeds ...
+  [exp2_naive] done in 0 s; collision rate 0.703 [0.649, 0.752], success rate 1.000
+  [exp2_lag_aware] 100 seeds ...
+  [exp2_lag_aware] done in 0 s; collision rate 0.590 [0.534, 0.644], success rate 1.000
+   condition  success_rate  collision_rate  collision_rate_lo  collision_rate_hi  min_clearance_median  intervention_mean
+  exp2_naive         1.000           0.703              0.649              0.752                 0.000              0.132
+exp2_lag_aware         1.000           0.590              0.534              0.644                 0.000              0.122
+  plots: /home/itri/Desktop/minfeng/mini-pacman/outputs/results/exp2/exp2_*.png
+
+######## exp3 ########
+/home/itri/Desktop/minfeng/mini-pacman/run_mini_pacman_experiments.py:83: UserWarning: /home/itri/Desktop/minfeng/mini-pacman/outputs/policies/task_cbf/run1 was not trained on AMD ROCm; the course rules don't accept it in the report
+  record = protocol.resolve_policy(path, reward_variant, cfg)
+  policy task_cbf: model_4999.pt (final), seed 0, 5000 updates, 256 envs, config 536ff241d3e4a212, ROCm False
+  [exp3_no_filter] 100 seeds ...
+  [exp3_no_filter] done in 0 s; collision rate 0.733 [0.681, 0.780], success rate 0.990
+  [exp3_truth] 100 seeds ...
+  [exp3_truth] done in 0 s; collision rate 0.513 [0.457, 0.569], success rate 0.990
+  [exp3_noisy_truth] 100 seeds ...
+  [exp3_noisy_truth] done in 0 s; collision rate 0.543 [0.487, 0.599], success rate 1.000
+  [exp3_depth_tracker] 100 seeds ...
+  [exp3_depth_tracker] done in 0 s; collision rate 0.593 [0.537, 0.647], success rate 1.000
+   condition  success_rate  collision_rate  collision_rate_lo  collision_rate_hi  min_clearance_median  intervention_mean
+exp3_no_filter         0.990           0.733              0.681              0.780                 0.000                nan
+  exp3_truth         0.990           0.513              0.457              0.569                 0.000              0.123
+exp3_noisy_truth         1.000           0.543              0.487              0.599                 0.000              0.110
+exp3_depth_tracker         1.000           0.593              0.537              0.647                 0.000              0.069
+Traceback (most recent call last):
+  File "/home/itri/Desktop/minfeng/mini-pacman/run_mini_pacman_experiments.py", line 452, in main
+    funcs[p](cfg, args, args.out)
+  File "/home/itri/Desktop/minfeng/mini-pacman/run_mini_pacman_experiments.py", line 363, in part_exp3
+    report.plot_exp3(rows, exp_dir)
+  File "/home/itri/Desktop/minfeng/mini-pacman/minipacman/report.py", line 169, in plot_exp3
+    bar_chart(rows, "success_rate", out_dir / "exp3_success_rate.png",
+  File "/home/itri/Desktop/minfeng/mini-pacman/minipacman/report.py", line 153, in bar_chart
+    ax.bar(range(len(rows)), vals, yerr=yerr, capsize=4, color="#4C78A8")
+  File "/home/itri/miniconda3/envs/mini-pacman/lib/python3.10/site-packages/matplotlib/__init__.py", line 1524, in inner
+    return func(
+  File "/home/itri/miniconda3/envs/mini-pacman/lib/python3.10/site-packages/matplotlib/axes/_axes.py", line 2676, in bar
+    errorbar = self.errorbar(ex, ey, yerr=yerr, xerr=xerr, fmt='none',
+  File "/home/itri/miniconda3/envs/mini-pacman/lib/python3.10/site-packages/matplotlib/_api/deprecation.py", line 453, in wrapper
+    return func(*args, **kwargs)
+  File "/home/itri/miniconda3/envs/mini-pacman/lib/python3.10/site-packages/matplotlib/__init__.py", line 1524, in inner
+    return func(
+  File "/home/itri/miniconda3/envs/mini-pacman/lib/python3.10/site-packages/matplotlib/axes/_axes.py", line 3825, in errorbar
+    raise ValueError(
+ValueError: 'yerr' must not contain negative values
+[ERROR] exp3 failed, going on to the next part
+
+######## summary ########
+== exp1
+   condition  success_rate  collision_rate  collision_rate_lo  collision_rate_hi  min_clearance_median  intervention_mean
+exp1_task_nofilter         0.000           0.900              0.861              0.929                -0.003                nan
+exp1_task_filter         0.000           0.627              0.571              0.679                 0.000              0.173
+exp1_task_collision_nofilter         0.000           0.917              0.880              0.943                -0.002                nan
+exp1_task_collision_filter         0.000           0.610              0.554              0.663                 0.000              0.172
+exp1_task_cbf_nofilter         0.990           0.733              0.681              0.780                 0.000                nan
+exp1_task_cbf_filter         0.990           0.513              0.457              0.569                 0.000              0.123
+== exp2
+   condition  success_rate  collision_rate  collision_rate_lo  collision_rate_hi  min_clearance_median  intervention_mean
+  exp2_naive         1.000           0.703              0.649              0.752                 0.000              0.132
+exp2_lag_aware         1.000           0.590              0.534              0.644                 0.000              0.122
+== exp3
+   condition  success_rate  collision_rate  collision_rate_lo  collision_rate_hi  min_clearance_median  intervention_mean
+exp3_no_filter         0.990           0.733              0.681              0.780                 0.000                nan
+  exp3_truth         0.990           0.513              0.457              0.569                 0.000              0.123
+exp3_noisy_truth         1.000           0.543              0.487              0.599                 0.000              0.110
+exp3_depth_tracker         1.000           0.593              0.537              0.647                 0.000              0.069
+Traceback (most recent call last):
+  File "/home/itri/Desktop/minfeng/mini-pacman/run_mini_pacman_experiments.py", line 452, in main
+    funcs[p](cfg, args, args.out)
+  File "/home/itri/Desktop/minfeng/mini-pacman/run_mini_pacman_experiments.py", line 400, in part_summary
+    plot(rows, exp_dir)
+  File "/home/itri/Desktop/minfeng/mini-pacman/minipacman/report.py", line 169, in plot_exp3
+    bar_chart(rows, "success_rate", out_dir / "exp3_success_rate.png",
+  File "/home/itri/Desktop/minfeng/mini-pacman/minipacman/report.py", line 153, in bar_chart
+    ax.bar(range(len(rows)), vals, yerr=yerr, capsize=4, color="#4C78A8")
+  File "/home/itri/miniconda3/envs/mini-pacman/lib/python3.10/site-packages/matplotlib/__init__.py", line 1524, in inner
+    return func(
+  File "/home/itri/miniconda3/envs/mini-pacman/lib/python3.10/site-packages/matplotlib/axes/_axes.py", line 2676, in bar
+    errorbar = self.errorbar(ex, ey, yerr=yerr, xerr=xerr, fmt='none',
+  File "/home/itri/miniconda3/envs/mini-pacman/lib/python3.10/site-packages/matplotlib/_api/deprecation.py", line 453, in wrapper
+    return func(*args, **kwargs)
+  File "/home/itri/miniconda3/envs/mini-pacman/lib/python3.10/site-packages/matplotlib/__init__.py", line 1524, in inner
+    return func(
+  File "/home/itri/miniconda3/envs/mini-pacman/lib/python3.10/site-packages/matplotlib/axes/_axes.py", line 3825, in errorbar
+    raise ValueError(
+ValueError: 'yerr' must not contain negative values
+[ERROR] summary failed, going on to the next part
