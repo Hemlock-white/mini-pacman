@@ -99,6 +99,13 @@ def training_fingerprint(cfg: Config) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
 
 
+def evaluation_fingerprint(cfg: Config) -> str:
+    """Fingerprint of everything that changes an evaluation episode (all config sections but tita paths and exp)."""
+    data = {name: value for name, value in cfg.to_dict().items() if name not in ("tita", "exp")}
+    text = json.dumps(data, sort_keys=True, default=str)
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
+
+
 def config_differences(old: dict, new: dict, prefix: str = "") -> list[str]:
     """Human-readable list of fields that differ between two training_config() dicts."""
     out = []

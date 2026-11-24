@@ -111,12 +111,13 @@ def test_run_condition_resume(tmp_path, monkeypatch, cfg):
 
     condition = Condition("resume", "scripted", "scripted", None)
     path = tmp_path / "episodes.jsonl"
-    report.save_jsonl([_episode(1, condition.name)], path)
+    key = evaluate.episode_key(condition, cfg)
+    report.save_jsonl([{**_episode(1, condition.name), **key}], path)
     calls = []
 
     def fake_run_episode(condition_, seed, cfg_, policy, device, env=None):
         calls.append(seed)
-        return _episode(seed, condition_.name)
+        return {**_episode(seed, condition_.name), **key}
 
     monkeypatch.setattr(evaluate, "run_episode", fake_run_episode)
     monkeypatch.setattr(evaluate, "make_env", lambda *args, **kwargs: None)
@@ -129,3 +130,38 @@ def test_run_condition_resume(tmp_path, monkeypatch, cfg):
     episodes = evaluate.run_condition(condition, [1, 2], cfg, path, "cpu", resume=False)
     assert calls == [1, 2]
     assert len(episodes) == 2 and len(report.load_jsonl(path)) == 2
+
+
+def test_resume_never_reuses_episodes_from_another_checkpoint(tmp_path, monkeypatch, cfg):
+    """After --part select picks a different checkpoint, saved episodes of the old one must be rerun."""
+    import minipacman.evaluate as evaluate
+
+    old = Condition("exp1_task_nofilter", "out/task/run1/model_4999.pt", "task", None)
+    new = Condition("exp1_task_nofilter", "out/task/run1/model_2500.pt", "task", None)
+    path = tmp_path / "exp1_task_nofilter.jsonl"
+    report.save_jsonl([{**_episode(s, old.name), **evaluate.episode_key(old, cfg)} for s in (1, 2)]
+                      + [_episode(3, old.name)], path)                 # seed 3: saved by an older script, no key
+    calls = []
+
+    def fake_run_episode(condition_, seed, cfg_, policy, device, env=None):
+        calls.append(seed)
+        return {**_episode(seed, condition_.name), **evaluate.episode_key(condition_, cfg_)}
+
+    monkeypatch.setattr(evaluate, "run_episode", fake_run_episode)
+    monkeypatch.setattr(evaluate, "make_env", lambda *args, **kwargs: None)
+    monkeypatch.setattr(evaluate, "load_policy", lambda *args, **kwargs: None)
+    episodes = evaluate.run_condition(new, [1, 2, 3], cfg, path, "cpu", resume=True)
+    assert calls == [1, 2, 3]
+    assert all(e["policy_id"] == "task/run1/model_2500.pt" for e in report.load_jsonl(path))
+    calls.clear()
+    cfg.cbf.horizon = 2.0                                               # a filter change also invalidates them
+    evaluate.run_condition(new, [1, 2, 3], cfg, path, "cpu", resume=True)
+    assert calls == [1, 2, 3]
+    assert len(episodes) == 3
+
+
+def test_wilson_bounds_contain_the_estimate():
+    """At 100/100 rounding put the upper bound below 1.0, and the negative error bar crashed the Exp 3 plot."""
+    for k, n in [(100, 100), (99, 100), (0, 100), (1, 3)]:
+        p, lo, hi = report.wilson(k, n)
+        assert lo <= p <= hi

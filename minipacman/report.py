@@ -66,7 +66,15 @@ def wilson(k: int, n: int, z: float = 1.96) -> tuple[float, float, float]:
     den = 1 + z ** 2 / n
     c = (p + z ** 2 / (2 * n)) / den
     h = z * math.sqrt(p * (1 - p) / n + z ** 2 / (4 * n ** 2)) / den
-    return p, max(0.0, c - h), min(1.0, c + h)
+    # min/max with p: at k = n (or 0) rounding can put the bound a hair inside p (0.9999999999999999 < 1.0), and a
+    # negative error bar then crashes matplotlib
+    return p, min(p, max(0.0, c - h)), max(p, min(1.0, c + h))
+
+
+def _error_bars(values, lower, upper) -> np.ndarray:
+    """(2, n) error-bar lengths for matplotlib, never negative."""
+    values, lower, upper = (np.asarray(a, dtype=float) for a in (values, lower, upper))
+    return np.clip(np.vstack([values - lower, upper - values]), 0.0, None)
 
 
 def summarize(episodes: list[dict], height_buckets=(("low", 0.0, 0.2), ("mid", 0.2, 0.4), ("high", 0.4, 10.0))) -> dict:
@@ -149,7 +157,7 @@ def bar_chart(rows: list[dict], metric: str, path: str | Path, title: str, ylabe
     if ci and all(f"{metric}_lo" in r for r in rows):
         lo = np.array([r[f"{metric}_lo"] for r in rows], dtype=float)
         hi = np.array([r[f"{metric}_hi"] for r in rows], dtype=float)
-        yerr = np.vstack([vals - lo, hi - vals])
+        yerr = _error_bars(vals, lo, hi)
     ax.bar(range(len(rows)), vals, yerr=yerr, capsize=4, color="#4C78A8")
     ax.set_xticks(range(len(rows)), labels, rotation=20, ha="right")
     ax.set_ylabel(ylabel)
@@ -208,7 +216,7 @@ def plot_exp1(rows: list[dict], out_dir: str | Path) -> None:
         offset = (index - 0.5) * width
         axis.bar(
             x + offset, values, width=width, label=label,
-            yerr=np.vstack([values - lower, upper - values]), capsize=4,
+            yerr=_error_bars(values, lower, upper), capsize=4,
         )
     axis.set_xticks(x, rewards)
     axis.set_ylabel("collision rate (hit balls / thrown)")
@@ -226,7 +234,7 @@ def plot_exp1(rows: list[dict], out_dir: str | Path) -> None:
     success_hi = np.array([row["success_rate_hi"] for row in filter_rows], dtype=float)
     axes[0].bar(
         x, success,
-        yerr=np.vstack([success - success_lo, success_hi - success]), capsize=4,
+        yerr=_error_bars(success, success_lo, success_hi), capsize=4,
         color="#4C78A8",
     )
     axes[0].set_title("Task success with filter on")

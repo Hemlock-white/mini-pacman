@@ -187,7 +187,18 @@ def run_episode(condition: Condition, seed: int, cfg: Config, policy, device: st
         "seed": int(seed),
         **env.episode_summary(),
         "device": str(device),
+        **episode_key(condition, cfg),
     }
+
+
+def episode_key(condition: Condition, cfg: Config) -> dict:
+    """What produced an episode: the checkpoint (its last three path parts, e.g. task/run1/model_4999.pt, so the key
+    is the same on every machine) and a fingerprint of the evaluation config. run_condition only reuses saved
+    episodes whose key matches, so switching checkpoints (e.g. after --part select) can't silently reuse old ones."""
+    from .protocol import evaluation_fingerprint
+
+    policy_id = condition.policy if condition.policy == "scripted" else "/".join(Path(condition.policy).parts[-3:])
+    return {"policy_id": policy_id, "eval_config": evaluation_fingerprint(cfg)}
 
 
 # ---------------- parallel evaluation (each worker loads the policy once and reuses one env) ----------------
@@ -211,6 +222,8 @@ def run_condition(condition: Condition, seeds: list[int], cfg: Config, out_path:
     """Run run_episode for every seed, append each finished one to out_path (.jsonl), return all episodes.
 
     resume=True: skip seeds already in out_path (read them with report.load_jsonl), so an interrupted run can continue.
+                 Only episodes made by the same checkpoint and evaluation config are reused (episode_key); the rest
+                 are dropped from the file and rerun.
     resume=False: delete out_path first and rerun everything.
     workers > 1: run seeds in parallel subprocesses (each seed is independent, so the results are the same).
     """
@@ -220,7 +233,13 @@ def run_condition(condition: Condition, seeds: list[int], cfg: Config, out_path:
     if not resume:
         out_path.unlink(missing_ok=True)
     existing = report.load_jsonl(out_path) if resume else []
-    by_seed = {int(episode["seed"]): episode for episode in existing}
+    key = episode_key(condition, cfg)
+    kept = [e for e in existing if all(e.get(k) == v for k, v in key.items())]
+    if len(kept) < len(existing):
+        print(f"  [{condition.name}] {len(existing) - len(kept)} saved episodes came from another checkpoint or "
+              f"config (or an older version of this script); running them again", flush=True)
+        report.save_jsonl(kept, out_path)
+    by_seed = {int(episode["seed"]): episode for episode in kept}
     todo = [int(seed) for seed in seeds if int(seed) not in by_seed]
     if todo and workers > 1:
         import multiprocessing as mp
