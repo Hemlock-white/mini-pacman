@@ -1,0 +1,688 @@
+{
+  "protocol": 1,
+  "reward_variant": "task_collision",
+  "seed": 0,
+  "num_envs": 256,
+  "target_updates": 5000,
+  "fingerprint": "64fa150997438fb2",
+  "training_config": {
+    "sim": {
+      "timestep": 0.002,
+      "integrator": "implicitfast",
+      "default_contact": true,
+      "lqr_every": 1,
+      "policy_every": 10,
+      "episode_seconds": 20.0
+    },
+    "robot": {
+      "base_body": "base_link",
+      "legs": [
+        "joint_left_leg_1",
+        "joint_left_leg_2",
+        "joint_left_leg_3",
+        "joint_right_leg_1",
+        "joint_right_leg_2",
+        "joint_right_leg_3"
+      ],
+      "wheels": [
+        "joint_left_leg_4",
+        "joint_right_leg_4"
+      ],
+      "wheel_motors": [
+        "left_leg_4",
+        "right_leg_4"
+      ],
+      "leg_kp": 600.0,
+      "leg_kv": 15.0,
+      "leg_force_limit": 80.0,
+      "wheel_torque_limit": 20.0,
+      "wheel_radius": 0.0925,
+      "z_offset": -0.0005,
+      "stand_hip": 0.5,
+      "crouch_hip": 1.0,
+      "collision_geoms": [
+        "base_link_collision_0",
+        "left_leg_3_collision_0",
+        "right_leg_3_collision_0",
+        "left_leg_4_collision_0",
+        "right_leg_4_collision_0"
+      ],
+      "imu_site": "trunk_imu",
+      "camera_bodies": [
+        "left_camera",
+        "right_camara"
+      ]
+    },
+    "lqr": {
+      "q_default": 0.001,
+      "q_pos_x": 20.0,
+      "q_pitch": 200.0,
+      "q_yaw": 20.0,
+      "q_vel_x": 10.0,
+      "q_pitch_rate": 40.0,
+      "q_yaw_rate": 1.0,
+      "r_wheel": 0.5,
+      "discount": 0.9999,
+      "fd_eps": 1e-06,
+      "zero_abad_gains": true,
+      "zero_frictionloss_when_linearizing": true,
+      "max_position_error": 0.1
+    },
+    "command": {
+      "v_min": -0.5,
+      "v_min_crouch": -0.15,
+      "v_max_stand": 0.8,
+      "v_max_crouch": 0.3,
+      "w_max_stand": 2.0,
+      "w_max_crouch": 1.0,
+      "sdot_max": 3.3333333333333335,
+      "accel_limit": 1.5,
+      "yaw_accel_limit": 6.0,
+      "crouch_lookahead": 0.3,
+      "speed_lag_tau": 0.16
+    },
+    "task": {
+      "goal_distance": 6.0,
+      "goal_radius": 0.3,
+      "fall_pitch": 1.0
+    },
+    "balls": {
+      "pool_size": 5,
+      "balls_per_episode": [
+        1,
+        5
+      ],
+      "first_throw_range": [
+        1.0,
+        3.0
+      ],
+      "throw_interval_range": [
+        1.0,
+        3.5
+      ],
+      "radius_range": [
+        0.075,
+        0.125
+      ],
+      "mass_range": [
+        0.07,
+        0.2
+      ],
+      "restitution_range": [
+        0.5,
+        0.8
+      ],
+      "hollow": true,
+      "friction": [
+        0.6,
+        0.005,
+        0.0001
+      ],
+      "contact_stiffness": 50000.0,
+      "calibration_impact_speed": 4.0,
+      "launch_distance_range": [
+        3.0,
+        5.0
+      ],
+      "launch_angle_deg": 25.0,
+      "horizontal_speed_range": [
+        3.0,
+        6.0
+      ],
+      "arrival_height_range": [
+        0.05,
+        0.65
+      ],
+      "direct_launch_height_range": [
+        0.3,
+        1.5
+      ],
+      "bounce_fraction": 0.5,
+      "bounce_point_range": [
+        0.3,
+        0.8
+      ],
+      "bounce_launch_height_max": 2.5,
+      "aim_noise": 0.1,
+      "lead_target": true,
+      "retire_behind": 1.0,
+      "retire_lifetime": 4.0,
+      "park_xy": [
+        -100.0,
+        100.0
+      ]
+    },
+    "camera": {
+      "hi_res": [
+        64,
+        36
+      ],
+      "policy_res": [
+        16,
+        9
+      ],
+      "fovy_deg": 54.0,
+      "near": 0.1,
+      "far": 5.0,
+      "tilt_up_deg": 5.0,
+      "geomgroups": [
+        1,
+        1,
+        1,
+        0,
+        0,
+        0
+      ],
+      "ball_only": true,
+      "update_every": 1,
+      "frame_offsets": [
+        0,
+        3,
+        8,
+        18
+      ],
+      "noise_a": 0.002,
+      "noise_b": 0.004,
+      "pixel_dropout": 0.02,
+      "aug_ball_noise_sigma": 0.03,
+      "aug_ball_pixel_dropout": 0.1,
+      "aug_ball_full_dropout": 0.02,
+      "aug_ball_depth_jitter": 0.15
+    },
+    "imu": {
+      "gyro_sensor": "trunk_gyro",
+      "accel_sensor": "trunk_accel",
+      "quat_sensor": "trunk_quat",
+      "gyro_noise": 0.01,
+      "gyro_bias_std": 0.005,
+      "accel_noise": 0.05,
+      "accel_bias_std": 0.05,
+      "quat_noise_deg": 0.5
+    },
+    "encoder": {
+      "counts_per_rev": 4096,
+      "vel_noise": 0.02
+    },
+    "estimator": {
+      "complementary_alpha": 0.98,
+      "use_true_state": true
+    },
+    "reward": {
+      "progress_weight": 10.0,
+      "goal_bonus": 50.0,
+      "at_goal_weight": 0.1,
+      "collision_penalty": 100.0,
+      "fall_penalty": 200.0,
+      "action_rate_weight": 0.05
+    },
+    "obs": {
+      "actor_ball_input": "depth",
+      "proprio_terms": [
+        [
+          "gyro",
+          3
+        ],
+        [
+          "gravity",
+          3
+        ],
+        [
+          "forward_speed",
+          1
+        ],
+        [
+          "crouch",
+          1
+        ],
+        [
+          "last_action",
+          3
+        ]
+      ],
+      "goal_dims": 2,
+      "ball_slots": 5,
+      "ball_slot_features": 8,
+      "clip_rel_pos": 10.0,
+      "privileged_base_vel": 3,
+      "single_ball_env_steps": 24000
+    },
+    "ppo": {
+      "rsl_rl_version": "5.4.0",
+      "num_envs": 256,
+      "num_steps_per_env": 24,
+      "max_iterations": 5000,
+      "save_interval": 100,
+      "hidden_dims": [
+        512,
+        256,
+        128
+      ],
+      "activation": "elu",
+      "obs_normalization": true,
+      "init_std": 0.2,
+      "learning_rate": 0.0003,
+      "schedule": "adaptive",
+      "desired_kl": 0.01,
+      "clip_param": 0.2,
+      "entropy_coef": 0.001,
+      "value_loss_coef": 1.0,
+      "num_learning_epochs": 5,
+      "num_mini_batches": 4,
+      "gamma": 0.99,
+      "lam": 0.95,
+      "max_grad_norm": 1.0
+    },
+    "cbf_reward": {
+      "alpha": 1.0,
+      "margin": 0.05,
+      "constraint_clip": 2.0,
+      "reward_weight": 1.0,
+      "threat_min_height_above_radius": 0.05,
+      "threat_min_speed": 0.5
+    }
+  },
+  "device": {
+    "python": "3.10.20",
+    "platform": "Linux-7.0.0-38-generic-x86_64-with-glibc2.39",
+    "cpu": "x86_64",
+    "cpu_count": 24,
+    "git_commit": "784883d",
+    "mujoco": "3.17.0",
+    "torch": "2.7.1+cu128",
+    "torch_hip": null,
+    "torch_cuda": "12.8",
+    "device": "cuda:0",
+    "gpu_name": "NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition",
+    "rocm": false,
+    "rsl_rl": "5.4.0"
+  },
+  "args": {
+    "reward": "task_collision",
+    "seed": "0",
+    "iterations": "5000",
+    "num_envs": "256",
+    "learning_rate": "None",
+    "num_workers": "None",
+    "device": "None",
+    "resume": "None",
+    "quick": "False",
+    "out": "outputs/policies/task_collision/run1"
+  },
+  "segments": [
+    {
+      "resume_from": null,
+      "first_update": 0,
+      "updates": 5000,
+      "started": "2026-11-24 19:30:35",
+      "device": {
+        "python": "3.10.20",
+        "platform": "Linux-7.0.0-38-generic-x86_64-with-glibc2.39",
+        "cpu": "x86_64",
+        "cpu_count": 24,
+        "git_commit": "784883d",
+        "mujoco": "3.17.0",
+        "torch": "2.7.1+cu128",
+        "torch_hip": null,
+        "torch_cuda": "12.8",
+        "device": "cuda:0",
+        "gpu_name": "NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition",
+        "rocm": false,
+        "rsl_rl": "5.4.0"
+      },
+      "finished": "2026-11-24 21:34:37",
+      "final_checkpoint": "model_4999.pt"
+    }
+  ],
+  "config": {
+    "tita": {
+      "repo_url": "https://github.com/DDTRobot/ddt_ros2_control.git",
+      "commit": "beb05df2d585bb100b4aeaca85bcba077d3a3ba0",
+      "subdir": "urdfs/tita_description",
+      "target_dir": "/home/itri/Desktop/minfeng/mini-pacman-ppo-kl/third_party/tita"
+    },
+    "sim": {
+      "timestep": 0.002,
+      "integrator": "implicitfast",
+      "default_contact": true,
+      "lqr_every": 1,
+      "policy_every": 10,
+      "episode_seconds": 20.0
+    },
+    "robot": {
+      "base_body": "base_link",
+      "legs": [
+        "joint_left_leg_1",
+        "joint_left_leg_2",
+        "joint_left_leg_3",
+        "joint_right_leg_1",
+        "joint_right_leg_2",
+        "joint_right_leg_3"
+      ],
+      "wheels": [
+        "joint_left_leg_4",
+        "joint_right_leg_4"
+      ],
+      "wheel_motors": [
+        "left_leg_4",
+        "right_leg_4"
+      ],
+      "leg_kp": 600.0,
+      "leg_kv": 15.0,
+      "leg_force_limit": 80.0,
+      "wheel_torque_limit": 20.0,
+      "wheel_radius": 0.0925,
+      "z_offset": -0.0005,
+      "stand_hip": 0.5,
+      "crouch_hip": 1.0,
+      "collision_geoms": [
+        "base_link_collision_0",
+        "left_leg_3_collision_0",
+        "right_leg_3_collision_0",
+        "left_leg_4_collision_0",
+        "right_leg_4_collision_0"
+      ],
+      "imu_site": "trunk_imu",
+      "camera_bodies": [
+        "left_camera",
+        "right_camara"
+      ]
+    },
+    "lqr": {
+      "q_default": 0.001,
+      "q_pos_x": 20.0,
+      "q_pitch": 200.0,
+      "q_yaw": 20.0,
+      "q_vel_x": 10.0,
+      "q_pitch_rate": 40.0,
+      "q_yaw_rate": 1.0,
+      "r_wheel": 0.5,
+      "discount": 0.9999,
+      "fd_eps": 1e-06,
+      "zero_abad_gains": true,
+      "zero_frictionloss_when_linearizing": true,
+      "max_position_error": 0.1
+    },
+    "command": {
+      "v_min": -0.5,
+      "v_min_crouch": -0.15,
+      "v_max_stand": 0.8,
+      "v_max_crouch": 0.3,
+      "w_max_stand": 2.0,
+      "w_max_crouch": 1.0,
+      "sdot_max": 3.3333333333333335,
+      "accel_limit": 1.5,
+      "yaw_accel_limit": 6.0,
+      "crouch_lookahead": 0.3,
+      "speed_lag_tau": 0.16
+    },
+    "task": {
+      "goal_distance": 6.0,
+      "goal_radius": 0.3,
+      "fall_pitch": 1.0
+    },
+    "balls": {
+      "pool_size": 5,
+      "balls_per_episode": [
+        1,
+        5
+      ],
+      "first_throw_range": [
+        1.0,
+        3.0
+      ],
+      "throw_interval_range": [
+        1.0,
+        3.5
+      ],
+      "radius_range": [
+        0.075,
+        0.125
+      ],
+      "mass_range": [
+        0.07,
+        0.2
+      ],
+      "restitution_range": [
+        0.5,
+        0.8
+      ],
+      "hollow": true,
+      "friction": [
+        0.6,
+        0.005,
+        0.0001
+      ],
+      "contact_stiffness": 50000.0,
+      "calibration_impact_speed": 4.0,
+      "launch_distance_range": [
+        3.0,
+        5.0
+      ],
+      "launch_angle_deg": 25.0,
+      "horizontal_speed_range": [
+        3.0,
+        6.0
+      ],
+      "arrival_height_range": [
+        0.05,
+        0.65
+      ],
+      "direct_launch_height_range": [
+        0.3,
+        1.5
+      ],
+      "bounce_fraction": 0.5,
+      "bounce_point_range": [
+        0.3,
+        0.8
+      ],
+      "bounce_launch_height_max": 2.5,
+      "aim_noise": 0.1,
+      "lead_target": true,
+      "retire_behind": 1.0,
+      "retire_lifetime": 4.0,
+      "park_xy": [
+        -100.0,
+        100.0
+      ]
+    },
+    "camera": {
+      "hi_res": [
+        64,
+        36
+      ],
+      "policy_res": [
+        16,
+        9
+      ],
+      "fovy_deg": 54.0,
+      "near": 0.1,
+      "far": 5.0,
+      "tilt_up_deg": 5.0,
+      "geomgroups": [
+        1,
+        1,
+        1,
+        0,
+        0,
+        0
+      ],
+      "ball_only": true,
+      "update_every": 1,
+      "frame_offsets": [
+        0,
+        3,
+        8,
+        18
+      ],
+      "noise_a": 0.002,
+      "noise_b": 0.004,
+      "pixel_dropout": 0.02,
+      "aug_ball_noise_sigma": 0.03,
+      "aug_ball_pixel_dropout": 0.1,
+      "aug_ball_full_dropout": 0.02,
+      "aug_ball_depth_jitter": 0.15
+    },
+    "tracker": {
+      "mode": "segmented",
+      "floor_threshold": 0.06,
+      "min_pixels": 1,
+      "gate": 0.5,
+      "accel_noise": 3.0,
+      "confirm_hits": 3,
+      "max_misses": 10,
+      "init_speed_std": 8.0
+    },
+    "noisy_truth": {
+      "pos_sigma": 0.03,
+      "vel_sigma": 0.2,
+      "latency": 0.04,
+      "dropout": 0.05
+    },
+    "imu": {
+      "gyro_sensor": "trunk_gyro",
+      "accel_sensor": "trunk_accel",
+      "quat_sensor": "trunk_quat",
+      "gyro_noise": 0.01,
+      "gyro_bias_std": 0.005,
+      "accel_noise": 0.05,
+      "accel_bias_std": 0.05,
+      "quat_noise_deg": 0.5
+    },
+    "encoder": {
+      "counts_per_rev": 4096,
+      "vel_noise": 0.02
+    },
+    "estimator": {
+      "complementary_alpha": 0.98,
+      "use_true_state": true
+    },
+    "cbf": {
+      "alpha": 1.0,
+      "margin": 0.05,
+      "constraint_clip": 2.0,
+      "reward_weight": 1.0,
+      "threat_min_height_above_radius": 0.05,
+      "threat_min_speed": 0.5,
+      "filter_alpha": 4.0,
+      "filter_margin": 0.05,
+      "horizon": 1.5,
+      "lag_tau_naive": 0.0,
+      "lag_tau_aware": 0.24,
+      "switch_weight": 0.5
+    },
+    "reward": {
+      "progress_weight": 10.0,
+      "goal_bonus": 50.0,
+      "at_goal_weight": 0.1,
+      "collision_penalty": 100.0,
+      "fall_penalty": 200.0,
+      "action_rate_weight": 0.05
+    },
+    "obs": {
+      "actor_ball_input": "depth",
+      "proprio_terms": [
+        [
+          "gyro",
+          3
+        ],
+        [
+          "gravity",
+          3
+        ],
+        [
+          "forward_speed",
+          1
+        ],
+        [
+          "crouch",
+          1
+        ],
+        [
+          "last_action",
+          3
+        ]
+      ],
+      "goal_dims": 2,
+      "ball_slots": 5,
+      "ball_slot_features": 8,
+      "clip_rel_pos": 10.0,
+      "privileged_base_vel": 3,
+      "single_ball_env_steps": 24000
+    },
+    "ppo": {
+      "rsl_rl_version": "5.4.0",
+      "num_envs": 256,
+      "num_workers": 0,
+      "num_steps_per_env": 24,
+      "max_iterations": 5000,
+      "save_interval": 100,
+      "hidden_dims": [
+        512,
+        256,
+        128
+      ],
+      "activation": "elu",
+      "obs_normalization": true,
+      "init_std": 0.2,
+      "learning_rate": 0.0003,
+      "schedule": "adaptive",
+      "desired_kl": 0.01,
+      "clip_param": 0.2,
+      "entropy_coef": 0.001,
+      "value_loss_coef": 1.0,
+      "num_learning_epochs": 5,
+      "num_mini_batches": 4,
+      "gamma": 0.99,
+      "lam": 0.95,
+      "max_grad_norm": 1.0
+    },
+    "exp": {
+      "n_eval_seeds": 100,
+      "eval_seed_offset": 10000,
+      "val_seed_offset": 20000,
+      "n_val_seeds": 20,
+      "select_every": 500,
+      "quick_seeds": 5,
+      "reward_variants": [
+        "task",
+        "task_collision",
+        "task_cbf"
+      ],
+      "exp1_filter_mode": "lag_aware",
+      "exp1_filter_source": "truth",
+      "exp2_policy": "scripted",
+      "exp2_filters": [
+        "naive",
+        "lag_aware"
+      ],
+      "exp2_replan": [
+        "every_step"
+      ],
+      "exp3_sources": [
+        "truth",
+        "noisy_truth",
+        "depth_tracker"
+      ],
+      "exp3_reward_variant": "task_cbf",
+      "exp3_filter_mode": "lag_aware",
+      "height_buckets": [
+        [
+          "low",
+          0.0,
+          0.2
+        ],
+        [
+          "mid",
+          0.2,
+          0.4
+        ],
+        [
+          "high",
+          0.4,
+          10.0
+        ]
+      ]
+    }
+  }
+}

@@ -1,0 +1,84 @@
+{
+  "rule": "validation",
+  "checkpoint": "model_1500.pt",
+  "label": 1500,
+  "seeds": [
+    20000,
+    20
+  ],
+  "criterion": "max success rate, then min fall rate, then min collision rate, then the later checkpoint",
+  "candidate_rule": "every 500 updates + final",
+  "candidates": [
+    {
+      "label": 500,
+      "checkpoint": "model_500.pt",
+      "success_rate": 0.5,
+      "fall_rate": 0.0,
+      "collision_rate": 0.7857142857142857
+    },
+    {
+      "label": 1000,
+      "checkpoint": "model_1000.pt",
+      "success_rate": 0.05,
+      "fall_rate": 0.0,
+      "collision_rate": 0.8035714285714286
+    },
+    {
+      "label": 1500,
+      "checkpoint": "model_1500.pt",
+      "success_rate": 0.75,
+      "fall_rate": 0.0,
+      "collision_rate": 0.8392857142857143
+    },
+    {
+      "label": 2000,
+      "checkpoint": "model_2000.pt",
+      "success_rate": 0.7,
+      "fall_rate": 0.0,
+      "collision_rate": 0.8214285714285714
+    },
+    {
+      "label": 2500,
+      "checkpoint": "model_2500.pt",
+      "success_rate": 0.05,
+      "fall_rate": 0.0,
+      "collision_rate": 0.7857142857142857
+    },
+    {
+      "label": 3000,
+      "checkpoint": "model_3000.pt",
+      "success_rate": 0.0,
+      "fall_rate": 0.0,
+      "collision_rate": 0.8392857142857143
+    },
+    {
+      "label": 3500,
+      "checkpoint": "model_3500.pt",
+      "success_rate": 0.3,
+      "fall_rate": 0.0,
+      "collision_rate": 0.8214285714285714
+    },
+    {
+      "label": 4000,
+      "checkpoint": "model_4000.pt",
+      "success_rate": 0.5,
+      "fall_rate": 0.0,
+      "collision_rate": 0.8214285714285714
+    },
+    {
+      "label": 4500,
+      "checkpoint": "model_4500.pt",
+      "success_rate": 0.55,
+      "fall_rate": 0.0,
+      "collision_rate": 0.8928571428571429
+    },
+    {
+      "label": 4999,
+      "checkpoint": "model_4999.pt",
+      "success_rate": 0.65,
+      "fall_rate": 0.0,
+      "collision_rate": 0.8392857142857143
+    }
+  ],
+  "created": "2026-11-24 23:07:58"
+}

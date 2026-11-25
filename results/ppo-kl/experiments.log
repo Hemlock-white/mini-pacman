@@ -1,0 +1,17 @@
+/home/itri/Desktop/minfeng/mini-pacman-ppo-kl/run_mini_pacman_experiments.py:441: UserWarning: This run is NOT on an AMD ROCm GPU (device=cuda:0, gpu=NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition, hip=None). Under the course rules these results can't go in the report; use them for development and debugging only.
+  warn_if_not_rocm(info)
+/home/itri/Desktop/minfeng/mini-pacman-ppo-kl/run_mini_pacman_experiments.py:83: UserWarning: /home/itri/Desktop/minfeng/mini-pacman-ppo-kl/outputs/policies/task/run1 was not trained on AMD ROCm; the course rules don't accept it in the report
+  record = protocol.resolve_policy(path, reward_variant, cfg)
+/home/itri/Desktop/minfeng/mini-pacman-ppo-kl/run_mini_pacman_experiments.py:83: UserWarning: /home/itri/Desktop/minfeng/mini-pacman-ppo-kl/outputs/policies/task_collision/run1 was not trained on AMD ROCm; the course rules don't accept it in the report
+  record = protocol.resolve_policy(path, reward_variant, cfg)
+/home/itri/Desktop/minfeng/mini-pacman-ppo-kl/run_mini_pacman_experiments.py:83: UserWarning: /home/itri/Desktop/minfeng/mini-pacman-ppo-kl/outputs/policies/task_cbf/run1 was not trained on AMD ROCm; the course rules don't accept it in the report
+  record = protocol.resolve_policy(path, reward_variant, cfg)
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+This run is NOT on an AMD ROCm GPU (device=cuda:0, gpu=NVIDIA RTX PRO 6000 Blackwell Max-Q Workstation Edition, hip=None). Under the course rules these results can't go in the report; use them for development and debugging only.
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+######## exp1 ########
+  policy task: model_3500.pt (validation), seed 0, 5000 updates, 256 envs, config 64fa150997438fb2, ROCm False
+  policy task_collision: model_3000.pt (validation), seed 0, 5000 updates, 256 envs, config 64fa150997438fb2, ROCm False
+  policy task_cbf: model_1500.pt (validation), seed 0, 5000 updates, 256 envs, config 64fa150997438fb2, ROCm False
+  [exp1_task_nofilter] 100 seeds ...
